@@ -2,7 +2,7 @@
 
 Note
 ----
-We use Linux Mint for everything and found Nemo lacking a column view. We added a simple macOS Finder-style Column View to Nemo. Nemo's upstream is at https://github.com/linuxmint/nemo. You can https://www.simpletools.nl/ to contact us
+We use Linux Mint for everything and found Nemo lacking a column view. We added a simple macOS Finder-style Column View to Nemo. Nemo's upstream is at https://github.com/linuxmint/nemo. You can use https://www.simpletools.nl/ to contact us
 
 This app is based on nemo 6.6.3 (You can view it on master branch)
 
