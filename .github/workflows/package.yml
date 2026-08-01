@@ -12,6 +12,8 @@ jobs:
   package:
     name: Build nemo deb
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     container:
       image: linuxmintd/mint22.3-amd64
       options: --security-opt seccomp=unconfined
