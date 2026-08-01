@@ -99,7 +99,11 @@ jobs:
           Depends: ${shlibs:Depends}
           Description: nemo
           EOF
+          cat > /tmp/pkgbuild/debian/shlibs.local <<'EOF'
+          libnemo-extension 1 libnemo-extension1 (>= 5.0.3)
+          EOF
           cd /tmp/pkgbuild
+          set -o pipefail
           LIBNEMO=$(ls /tmp/staging/usr/lib/x86_64-linux-gnu/libnemo-extension.so.*.*.* | head -1)
           DEPS=$(dpkg-shlibdeps -O \
             /tmp/staging/usr/bin/nemo \
@@ -110,7 +114,7 @@ jobs:
             /tmp/staging/usr/libexec/nemo-extensions-list \
             "$LIBNEMO" 2>/dev/null \
             | sed 's/^shlibs:Depends=//')
-          DEPS=$(echo "$DEPS" | sed 's/libnemo-extension1 ([^)]*),//g; s/libnemo-extension1 ([^)]*)//')
+          DEPS=$(echo "$DEPS" | sed 's/libnemo-extension1 ([^)]*), *//g; s/libnemo-extension1 ([^)]*)//')
           echo "deps=$DEPS" >> "$GITHUB_OUTPUT"
 
       - name: Generate package control file
