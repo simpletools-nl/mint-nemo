@@ -88,6 +88,7 @@
 #define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_ICON_VIEW_ICON_TOOLBAR_WIDGET "show_icon_view_icon_toolbar_togglebutton"
 #define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_LIST_VIEW_ICON_TOOLBAR_WIDGET "show_list_view_icon_toolbar_togglebutton"
 #define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_COMPACT_VIEW_ICON_TOOLBAR_WIDGET "show_compact_view_icon_toolbar_togglebutton"
+#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_COLUMN_VIEW_ICON_TOOLBAR_WIDGET "show_column_view_icon_toolbar_togglebutton"
 #define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_SHOW_THUMBNAILS_ICON_TOOLBAR_WIDGET "show_show_thumbnails_icon_toolbar_togglebutton"
 #define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_TOGGLE_EXTRA_PANE_ICON_TOOLBAR_WIDGET "show_toggle_extra_pane_icon_toolbar_togglebutton"
 
@@ -131,6 +132,7 @@ static const char * const default_view_values[] = {
 	"icon-view",
 	"list-view",
 	"compact-view",
+	"column-view",
 	NULL
 };
 
@@ -928,6 +930,9 @@ nemo_file_management_properties_dialog_setup (GtkBuilder  *builder,
     bind_builder_bool (builder, nemo_preferences,
 			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_COMPACT_VIEW_ICON_TOOLBAR_WIDGET,
 			   NEMO_PREFERENCES_SHOW_COMPACT_VIEW_ICON_TOOLBAR);
+    bind_builder_bool (builder, nemo_preferences,
+			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_COLUMN_VIEW_ICON_TOOLBAR_WIDGET,
+			   NEMO_PREFERENCES_SHOW_COLUMN_VIEW_ICON_TOOLBAR);
     bind_builder_bool (builder, nemo_preferences,
 			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_SHOW_THUMBNAILS_ICON_TOOLBAR_WIDGET,
 			   NEMO_PREFERENCES_SHOW_SHOW_THUMBNAILS_TOOLBAR);

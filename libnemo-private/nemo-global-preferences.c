@@ -90,6 +90,8 @@ nemo_global_preferences_get_default_folder_viewer_preference_as_iid (void)
 		viewer_iid = NEMO_LIST_VIEW_IID;
 	} else if (preference_value == NEMO_DEFAULT_FOLDER_VIEWER_COMPACT_VIEW) {
 		viewer_iid = NEMO_COMPACT_VIEW_IID;
+	} else if (preference_value == NEMO_DEFAULT_FOLDER_VIEWER_OTHER) {
+		viewer_iid = "OAFIID:Nemo_File_Manager_Column_View";
 	} else {
 		viewer_iid = NEMO_ICON_VIEW_IID;
 	}

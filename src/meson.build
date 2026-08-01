@@ -26,6 +26,7 @@ nemoCommon_sources = [
   'nemo-connect-server-dialog-nonmain.c',
   'nemo-connect-server-dialog.c',
   'nemo-connect-server-operation.c',
+  'nemo-column-view.c',
   'nemo-desktop-icon-grid-view.c',
   'nemo-desktop-item-properties.c',
   'nemo-desktop-manager.c',
@@ -119,7 +120,7 @@ if gtk_layer_shell_enabled
   nemo_deps += wayland_client
 endif
 
-nemo = executable('nemo',
+nemo = executable('nemo-reload',
   nemoCommon_sources + nemoWindow_sources,
   include_directories: [ rootInclude ],
   c_args: nemo_definitions,

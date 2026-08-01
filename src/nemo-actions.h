@@ -51,6 +51,7 @@
 #define NEMO_ACTION_COMPACT_VIEW "CompactView"
 #define NEMO_ACTION_ICON_VIEW "IconView"
 #define NEMO_ACTION_LIST_VIEW "ListView"
+#define NEMO_ACTION_COLUMN_VIEW "ColumnView"
 #define NEMO_ACTION_GO_HOME "Home"
 #define NEMO_ACTION_ADD_BOOKMARK "Add Bookmark"
 #define NEMO_ACTION_EDIT_BOOKMARKS "Edit Bookmarks"

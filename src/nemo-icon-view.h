@@ -45,6 +45,7 @@ typedef struct NemoIconViewClass NemoIconViewClass;
 
 #define NEMO_ICON_VIEW_ID "OAFIID:Nemo_File_Manager_Icon_View"
 #define FM_COMPACT_VIEW_ID "OAFIID:Nemo_File_Manager_Compact_View"
+#define NEMO_COLUMN_VIEW_ID "OAFIID:Nemo_File_Manager_Column_View"
 
 typedef struct NemoIconViewDetails NemoIconViewDetails;
 

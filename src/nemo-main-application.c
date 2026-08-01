@@ -31,6 +31,7 @@
 #endif /* ENABLE_EMPTY_VIEW */
 
 #include "nemo-freedesktop-dbus.h"
+#include "nemo-column-view.h"
 #include "nemo-icon-view.h"
 #include "nemo-image-properties-page.h"
 #include "nemo-list-view.h"
@@ -1159,6 +1160,7 @@ nemo_main_application_continue_startup (NemoApplication *app)
 	nemo_icon_view_register ();
 	nemo_list_view_register ();
 	nemo_icon_view_compact_register ();
+	nemo_column_view_register ();
 #if defined(ENABLE_EMPTY_VIEW) && ENABLE_EMPTY_VIEW
 	nemo_empty_view_register ();
 #endif
@@ -1220,7 +1222,7 @@ NemoApplication *
 nemo_main_application_get_singleton (void)
 {
     return nemo_application_initialize_singleton (NEMO_TYPE_MAIN_APPLICATION,
-                                                  "application-id", "org.Nemo",
+                                                  "application-id", "org.Nemo.Reload",
                                                   "flags", G_APPLICATION_HANDLES_OPEN,
                                                   "register-session", TRUE,
                                                   NULL);

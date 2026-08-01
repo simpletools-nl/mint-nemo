@@ -90,6 +90,7 @@
             <menuitem name="Icon View" action="IconView"/>
             <menuitem name="List View" action="ListView"/>
             <menuitem name="Compact View" action="CompactView"/>
+            <menuitem name="Column View" action="ColumnView"/>
 		</placeholder>
 	</menu>
 	<placeholder name="Other Menus">

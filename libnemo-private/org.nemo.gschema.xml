@@ -16,11 +16,12 @@
     <value nick="ask" value="2"/>
   </enum>
 
-  <enum id="org.nemo.FolderView">
-    <value nick="icon-view" value="0"/>
-    <value nick="compact-view" value="1"/>
-    <value nick="list-view" value="2"/>
-  </enum>
+   <enum id="org.nemo.FolderView">
+     <value nick="icon-view" value="0"/>
+     <value nick="compact-view" value="1"/>
+     <value nick="list-view" value="2"/>
+     <value nick="column-view" value="3"/>
+   </enum>
 
   <enum id="org.nemo.DateFormat">
     <value nick="locale" value="0"/>
@@ -169,6 +170,11 @@
     <key type="b" name="show-compact-view-icon-toolbar">
       <default>true</default>
       <summary>Show Compact View button in nemo toolbar</summary>
+      <description>If set to true, then Nemo browser windows will show the button.</description>
+    </key>
+    <key type="b" name="show-column-view-icon-toolbar">
+      <default>true</default>
+      <summary>Show Column View button in nemo toolbar</summary>
       <description>If set to true, then Nemo browser windows will show the button.</description>
     </key>
     <key type="b" name="show-show-thumbnails-toolbar">

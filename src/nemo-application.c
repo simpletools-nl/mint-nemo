@@ -37,6 +37,7 @@
 #endif /* ENABLE_EMPTY_VIEW */
 
 #include "nemo-freedesktop-dbus.h"
+#include "nemo-column-view.h"
 #include "nemo-icon-view.h"
 #include "nemo-image-properties-page.h"
 #include "nemo-list-view.h"

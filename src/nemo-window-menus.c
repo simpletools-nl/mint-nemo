@@ -82,6 +82,7 @@ enum {
     ICON_VIEW,
     LIST_VIEW,
     COMPACT_VIEW,
+    COLUMN_VIEW,
     SIDEBAR_PLACES,
     SIDEBAR_TREE,
     TOOLBAR_PATHBAR,
@@ -1054,6 +1055,17 @@ action_compact_view_callback (GtkAction *action,
     set_content_view_type (window, FM_COMPACT_VIEW_ID);
 }
 
+static void
+action_column_view_callback (GtkAction *action,
+                             gpointer user_data)
+{
+    NemoWindow *window;
+
+    window = NEMO_WINDOW (user_data);
+
+    set_content_view_type (window, NEMO_COLUMN_VIEW_ID);
+}
+
 guint
 action_for_view_id (const char *view_id)
 {
@@ -1063,6 +1075,8 @@ action_for_view_id (const char *view_id)
         return LIST_VIEW;
     } else if (g_strcmp0(view_id, FM_COMPACT_VIEW_ID) == 0) {
         return COMPACT_VIEW;
+    } else if (g_strcmp0(view_id, NEMO_COLUMN_VIEW_ID) == 0) {
+        return COLUMN_VIEW;
     } else {
         return NULL_VIEW;
     }
@@ -1071,7 +1085,7 @@ action_for_view_id (const char *view_id)
 void
 toolbar_set_view_button (guint action_id, NemoWindow *window)
 {
-    GtkAction *action, *action1, *action2;
+    GtkAction *action, *action1, *action2, *action3;
     GtkActionGroup *action_group;
     if (action_id == NULL_VIEW) {
         return;
@@ -1084,6 +1098,8 @@ toolbar_set_view_button (guint action_id, NemoWindow *window)
                                          NEMO_ACTION_LIST_VIEW);
     action2 = gtk_action_group_get_action(action_group,
                                          NEMO_ACTION_COMPACT_VIEW);
+    action3 = gtk_action_group_get_action(action_group,
+                                         NEMO_ACTION_COLUMN_VIEW);
 
     g_signal_handlers_block_matched (action,
                          G_SIGNAL_MATCH_FUNC,
@@ -1104,24 +1120,17 @@ toolbar_set_view_button (guint action_id, NemoWindow *window)
                          NULL,
                          action_compact_view_callback,
                          window);
+    g_signal_handlers_block_matched (action3,
+                         G_SIGNAL_MATCH_FUNC,
+                         0, 0,
+                         NULL,
+                         action_column_view_callback,
+                         window);
 
-    if (action_id != ICON_VIEW) {
-        gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), FALSE);
-    } else {
-        gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), TRUE);
-    }
-
-    if (action_id != LIST_VIEW) {
-        gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action1), FALSE);
-    } else {
-        gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action1), TRUE);
-    }
-
-    if (action_id != COMPACT_VIEW) {
-        gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action2), FALSE);
-    } else {
-        gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action2), TRUE);
-    }
+    gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), action_id == ICON_VIEW);
+    gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action1), action_id == LIST_VIEW);
+    gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action2), action_id == COMPACT_VIEW);
+    gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action3), action_id == COLUMN_VIEW);
 
     g_signal_handlers_unblock_matched (action,
                            G_SIGNAL_MATCH_FUNC,
@@ -1144,6 +1153,13 @@ toolbar_set_view_button (guint action_id, NemoWindow *window)
                            0, 0,
                            NULL,
                            action_compact_view_callback,
+                           window);
+
+    g_signal_handlers_unblock_matched (action3,
+                           G_SIGNAL_MATCH_FUNC,
+                           0, 0,
+                           NULL,
+                           action_column_view_callback,
                            window);
 
 }
@@ -1599,7 +1615,10 @@ static const GtkRadioActionEntry view_radio_entries[] = {
       LIST_VIEW },
     { "CompactView", NULL,
       N_("Compact View"), "<ctrl>3", N_("Compact View"),
-      COMPACT_VIEW }
+      COMPACT_VIEW },
+    { "ColumnView", NULL,
+      N_("Column View"), "<ctrl>4", N_("Column View"),
+      COLUMN_VIEW }
 };
 
 static const GtkRadioActionEntry toolbar_radio_entries[] = {
@@ -1783,6 +1802,17 @@ nemo_window_create_toolbar_action_group (NemoWindow *window)
     gtk_action_set_icon_name (GTK_ACTION (action), "xsi-view-compact-symbolic");
 
    	g_object_unref (action);
+
+    action = GTK_ACTION (gtk_toggle_action_new (NEMO_ACTION_COLUMN_VIEW,
+                         _("Columns"),
+                         _("Column View"),
+                         NULL));
+    g_signal_connect (action, "activate",
+                      G_CALLBACK (action_column_view_callback),
+                      window);
+    gtk_action_group_add_action (action_group, action);
+    gtk_action_set_icon_name (GTK_ACTION (action), "xsi-view-list-symbolic");
+    g_object_unref (action);
 
  	action = GTK_ACTION (gtk_toggle_action_new (NEMO_ACTION_SEARCH,
  				_("Search"),_("Search documents and folders"),
