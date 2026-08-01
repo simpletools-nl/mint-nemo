@@ -1,5 +1,9 @@
 ![build](https://github.com/linuxmint/nemo/actions/workflows/build.yml/badge.svg)
 
+Note
+----
+We develop on Linux Mint and found Nemo lacking a column view. We added a simple macOS Finder-style Column View (Miller columns) to Nemo. Nemo's upstream is at https://github.com/linuxmint/nemo.
+
 Nemo
 ====
 Nemo is a free and open-source software and official file manager of the Cinnamon desktop environment. 
