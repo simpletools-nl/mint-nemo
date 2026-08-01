@@ -107,6 +107,8 @@ jobs:
           set -o pipefail
           LIBNEMO=$(ls /tmp/staging/usr/lib/x86_64-linux-gnu/libnemo-extension.so.*.*.* | head -1)
           DEPS=$(dpkg-shlibdeps -O \
+            -l/tmp/staging/usr/lib/x86_64-linux-gnu \
+            -l/tmp/staging/usr/lib \
             /tmp/staging/usr/bin/nemo \
             /tmp/staging/usr/bin/nemo-desktop \
             /tmp/staging/usr/bin/nemo-connect-server \
