@@ -16,7 +16,7 @@ Since Cinnamon 6.0 (Mint 21.3), users can enhance their own Nemo with Spices nam
 
 Screenshots
 ===========
-| <img src="screenshots/1.webp" alt="1" width="300"> | <img src="screenshots/2.webp" alt="2" width="300"> | <img src="screenshots/3.webp" alt="3" width="300"> |
+<img src="screenshots/1.webp" alt="1" width="300">  <img src="screenshots/2.webp" alt="2" width="300">  <img src="screenshots/3.webp" alt="3" width="300"> 
 
 
 
