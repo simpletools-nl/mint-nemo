@@ -1,3 +1,21 @@
+nemo (1.0.1) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix zoom level changes not refreshing the column icons.
+  * Add "Arrange Items" sort menu to the column view background context menu.
+
+ -- Ulas <ulas@localhost>  Sat, 01 Aug 2026 01:00:00 +0300
+
+nemo (1.0.0) unstable; urgency=medium
+
+  [ Column View ]
+  * Add macOS Finder-style Column View (Miller columns).
+  * Right-click context menu in columns.
+  * Toolbar and menu switching for the Column View.
+  * GSettings preference for the Column View toolbar icon.
+
+ -- Ulas <ulas@localhost>  Sat, 01 Aug 2026 00:00:00 +0300
+
 nemo (6.7.4) alfa; urgency=medium
 
   [ Michael Webster ]
