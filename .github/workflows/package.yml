@@ -86,6 +86,7 @@ jobs:
 
       - name: Compute shared library dependencies
         id: shlibs
+        shell: bash
         run: |
           mkdir -p /tmp/pkgbuild/debian
           cat > /tmp/pkgbuild/debian/control <<'EOF'
