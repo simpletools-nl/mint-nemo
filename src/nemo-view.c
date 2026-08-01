@@ -7090,13 +7090,45 @@ paste_clipboard_data (NemoView *view,
 						 NULL,
                          FALSE);
 	} else {
-		nemo_view_move_copy_items (view, item_uris, NULL, destination_uri,
-					       cut ? GDK_ACTION_MOVE : GDK_ACTION_COPY,
-					       0, 0);
+		gboolean all_in_same_folder = TRUE;
+		GList *u;
 
-		/* If items are cut then remove from clipboard */
-		if (cut) {
-			gtk_clipboard_clear (nemo_clipboard_get (GTK_WIDGET (view)));
+		/* Moving files into the folder they already live in is a no-op;
+		 * tell the user instead of silently doing nothing. */
+		for (u = item_uris; u != NULL; u = u->next) {
+			GFile *item = g_file_new_for_uri (u->data);
+			GFile *parent = g_file_get_parent (item);
+			GFile *dest = g_file_new_for_uri (destination_uri);
+
+			if (parent == NULL || !g_file_equal (parent, dest)) {
+				all_in_same_folder = FALSE;
+			}
+
+			g_object_unref (item);
+			if (parent != NULL) {
+				g_object_unref (parent);
+			}
+			g_object_unref (dest);
+
+			if (!all_in_same_folder) {
+				break;
+			}
+		}
+
+		if (all_in_same_folder) {
+			nemo_window_slot_set_status (view->details->slot,
+						     _("The selected files are already in this folder."),
+						     NULL,
+						     FALSE);
+		} else {
+			nemo_view_move_copy_items (view, item_uris, NULL, destination_uri,
+						       cut ? GDK_ACTION_MOVE : GDK_ACTION_COPY,
+						       0, 0);
+
+			/* If items are cut then remove from clipboard */
+			if (cut) {
+				gtk_clipboard_clear (nemo_clipboard_get (GTK_WIDGET (view)));
+			}
 		}
 
 		g_list_free_full (item_uris, g_free);
@@ -11166,14 +11198,20 @@ nemo_view_set_show_foreign (NemoView *view,
 	view->details->show_foreign_files = show_foreign;
 }
 
-char *
-nemo_view_get_uri (NemoView *view)
+static char *
+real_get_uri (NemoView *view)
 {
-	g_return_val_if_fail (NEMO_IS_VIEW (view), NULL);
 	if (view->details->model == NULL) {
 		return NULL;
 	}
 	return nemo_directory_get_uri (view->details->model);
+}
+
+char *
+nemo_view_get_uri (NemoView *view)
+{
+	g_return_val_if_fail (NEMO_IS_VIEW (view), NULL);
+	return NEMO_VIEW_CLASS (G_OBJECT_GET_CLASS (view))->get_uri (view);
 }
 
 void
@@ -11593,6 +11631,7 @@ nemo_view_class_init (NemoViewClass *klass)
 	klass->can_rename_file = can_rename_file;
 	klass->start_renaming_file = start_renaming_file;
 	klass->get_backing_uri = real_get_backing_uri;
+	klass->get_uri = real_get_uri;
 	klass->using_manual_layout = real_using_manual_layout;
         klass->merge_menus = real_merge_menus;
         klass->unmerge_menus = real_unmerge_menus;

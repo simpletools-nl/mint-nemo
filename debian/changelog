@@ -1,3 +1,140 @@
+nemo (1.0.16) unstable; urgency=medium
+
+  [ Column View ]
+  * Show the preview on the first left-click: connect to GtkTreeSelection
+    "changed" (fires after the selection is applied) instead of relying only on
+    "cursor-changed", which GTK can emit before the selection completes.
+
+ -- Ulas <ulasalkan@gmail.com>  Sun, 02 Aug 2026 14:00:00 +0300
+
+nemo (1.0.15) unstable; urgency=medium
+
+  [ Column View ]
+  * Show the preview on the first left-click: connect to GtkTreeSelection
+    "changed" (fires after the selection is applied) instead of relying only on
+    "cursor-changed", which GTK can emit before the selection completes.
+
+ -- Ulas <ulasalkan@gmail.com>  Sun, 02 Aug 2026 13:00:00 +0300
+
+nemo (1.0.14) unstable; urgency=medium
+
+  [ Column View ]
+  * Simplify the preview panel: images/videos show a thumbnail, text files show
+    their content, and every other type (PDF, Excel, zip, executables, ...)
+    shows a generic icon with metadata. Removes the pdftotext/xls2csv CLI
+    extraction added in 1.0.13.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 13:00:00 +0300
+
+nemo (1.0.13) unstable; urgency=medium
+
+  [ Column View ]
+  * Show content previews for office/text files: plain text is read directly,
+    PDF and Excel are extracted via pdftotext/xls2csv when available, falling
+    back to icon + metadata. Zip/program files keep icon + metadata.
+  * Fix crash when clicking bookmark folders (hold a reference on the view for
+    async preview loads, disconnect tree view handlers before column teardown).
+  * Preview panel now scrolls horizontally together with the columns instead of
+    staying fixed on the right over the content.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 12:00:00 +0300
+
+nemo (1.0.12) unstable; urgency=medium
+
+  [ Column View ]
+  * Show the preview panel dynamically: it appears only when a single file
+    or folder is selected and closes when the selection is empty or multiple.
+  * Show a "This folder is empty" message inside a column whose directory
+    has no items (instead of leaving it blank).
+  * Double the preview panel size (wider panel, larger thumbnail and icons).
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 11:00:00 +0300
+
+nemo (1.0.11) unstable; urgency=medium
+
+  [ Column View ]
+  * Show preview metadata (Name/Type/Size/Modified/Created/Location) for all
+    file types - labels were created but never displayed.
+  * Center the preview content in the remaining right-side area instead of
+    pinning it to the top; metadata stays pinned to the bottom.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 10:00:00 +0300
+
+nemo (1.0.10) unstable; urgency=medium
+
+  [ Column View ]
+  * Close columns to the right when clicking a regular file, so previously
+    opened folder contents do not stay visible (matches Finder navigation).
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 09:00:00 +0300
+
+nemo (1.0.9) unstable; urgency=medium
+
+  [ Column View ]
+  * Support the "Click on a file's name twice to rename it" preference in
+    column view, matching the list view behavior (slow two-click on the name
+    text starts an inline rename; directories also obey it without reopening
+    the column).
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 08:00:00 +0300
+
+nemo (1.0.7) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix Cut/Paste: the paste target and read-only state now follow the
+    currently viewed column directory instead of the window's initial folder.
+  * Cut files are now shown faded/ghosted in the columns until pasted.
+  * Show a status message when pasting into the folder the files are
+    already in, instead of silently doing nothing.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 07:00:00 +0300
+
+nemo (1.0.6) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix deleted files leaving an empty placeholder row in the columns.
+  * Fix the About dialog project link not being displayed (wrong property
+    name) and show the full project URL as the link label.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 06:00:00 +0300
+
+nemo (1.0.5) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix "Open in Terminal" (and other operations using the view URI) to use
+    the currently viewed column directory instead of the initial folder.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 05:00:00 +0300
+
+nemo (1.0.4) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix Cut/Copy and Paste: pasting now targets the currently viewed column
+    directory instead of the initial folder.
+  * Implement inline Rename (F2) for files and folders in the column view.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 04:00:00 +0300
+
+nemo (1.0.3) unstable; urgency=medium
+
+  [ Column View ]
+  * Show the selected file's information (name/size/count) in the status bar
+    and update it immediately when the selection changes.
+  * Show the full project URL in the About dialog.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 03:00:00 +0300
+
+nemo (1.0.2) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix right-click context menu not showing file actions (Rename, Copy, etc.)
+    when clicking on folders or files outside the last column.
+  * Only the most recently selected item stays selected; selecting a
+    sub-folder or a file inside a folder clears the upper level selection.
+  * Add GitHub project page link to the About dialog.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 01 Aug 2026 02:00:00 +0300
+
 nemo (1.0.1) unstable; urgency=medium
 
   [ Column View ]

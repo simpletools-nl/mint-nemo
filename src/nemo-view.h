@@ -152,6 +152,12 @@ struct NemoViewClass {
 
 	char *	(* get_backing_uri)		(NemoView *view);
 
+	/* get_uri is a function pointer for subclasses to override.
+	 * Subclasses may replace it with a function that returns the URI
+	 * of the location currently displayed by the view.
+	 */
+	char *	(* get_uri)			(NemoView *view);
+
 	/* get_selection is not a signal; it is just a function pointer for
 	 * subclasses to replace (override). Subclasses must replace it
 	 * with a function that returns a newly-allocated GList of

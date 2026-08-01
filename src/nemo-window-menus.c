@@ -336,6 +336,8 @@ action_about_nemo_callback (GtkAction *action,
 			       "comments", _("Nemo lets you organize "
 					     "files and folders, both on "
 					     "your computer and online."),
+			       "website", "https://github.com/simpletools-nl/mint-nemo",
+			       "website-label", "https://github.com/simpletools-nl/mint-nemo",
 			       "license", license_trans,
 			       "wrap-license", TRUE,
 			      "logo-icon-name", "folder",
