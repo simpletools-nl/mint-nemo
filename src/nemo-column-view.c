@@ -113,6 +113,7 @@ static void column_view_column_free (NemoColumnViewColumn *col);
 static void column_view_column_clear (NemoColumnViewColumn *col);
 static void column_view_rebuild_after_column (NemoColumnView *view, gint column_index);
 static void column_view_update_selection (NemoColumnView *view);
+static void column_view_invalidate_selection (NemoColumnView *view);
 static void column_view_notify_selection_changed (NemoColumnView *view);
 static void column_view_on_selection_changed (GtkTreeSelection *tree_selection, gpointer user_data);
 static void column_view_clear_other_columns_selection (NemoColumnView *view, NemoColumnViewColumn *keep_col);
@@ -510,6 +511,7 @@ column_view_column_files_changed_cb (NemoDirectory *directory,
 				if (nemo_file_is_gone (changed_file)) {
 					nemo_file_unref (changed_file);
 					gtk_list_store_remove (col->list_store, &iter);
+					column_view_invalidate_selection (col->view);
 				} else {
 					GdkPixbuf *icon;
 					gchar *name;
@@ -1164,6 +1166,7 @@ column_view_remove_file (NemoView *nemo_view, NemoFile *file, NemoDirectory *dir
 			if (existing_file == file) {
 				nemo_file_unref (file);
 				gtk_list_store_remove (col->list_store, &iter);
+				column_view_invalidate_selection (col->view);
 				column_view_column_update_empty_state (col);
 				return;
 			}
@@ -1337,6 +1340,7 @@ column_view_clear (NemoView *nemo_view)
 	NemoColumnView *view = NEMO_COLUMN_VIEW (nemo_view);
 
 	view->priv->selection_column = NULL;
+	column_view_invalidate_selection (view);
 
 	column_view_preview_clear (view);
 
@@ -1379,16 +1383,14 @@ column_view_get_selection (NemoView *nemo_view)
 			gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
 					    COLUMN_FILE, &file, -1);
 			if (file != NULL) {
-				selection = g_list_prepend (selection, file);
+				selection = g_list_prepend (selection, nemo_file_ref (file));
 			}
 		}
 	}
 
 	g_list_free_full (selected_rows, (GDestroyNotify) gtk_tree_path_free);
 
-	selection = g_list_reverse (selection);
-	nemo_file_list_ref (selection);
-	return selection;
+	return g_list_reverse (selection);
 }
 
 static GList *
@@ -1398,6 +1400,16 @@ column_view_peek_selection (NemoView *nemo_view)
 	if (view->priv->current_selection_count == -1)
 		column_view_update_selection (view);
 	return view->priv->current_selection;
+}
+
+static void
+column_view_invalidate_selection (NemoColumnView *view)
+{
+	if (view->priv->current_selection != NULL) {
+		nemo_file_list_free (view->priv->current_selection);
+		view->priv->current_selection = NULL;
+	}
+	view->priv->current_selection_count = -1;
 }
 
 static gint

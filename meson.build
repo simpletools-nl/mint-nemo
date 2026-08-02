@@ -1,7 +1,7 @@
 # Meson build file
 
 # https://github.com/simpletools-nl/mint-nemo
-project('nemo', 'c', version : '1.0.17', meson_version : '>=0.64.0')
+project('nemo', 'c', version : '1.0.18', meson_version : '>=0.64.0')
 
 # 1. If the library code has changed at all since last release, then increment revision.
 # 2. If any interfaces have been added, then increment current and set revision to 0.

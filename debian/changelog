@@ -1,3 +1,14 @@
+nemo (1.0.18) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix crash when renaming a file and then opening the "Open With" context
+    menu on the preview pane: the selection file list now refs each NemoFile
+    when it is built, and the cached selection is invalidated whenever a file
+    is removed from a column (renamed, deleted or gone). This prevents the
+    menu-update code from dereferencing stale NemoFile pointers.
+
+ -- Ulas <ulasalkan@gmail.com>  Sun, 02 Aug 2026 18:00:00 +0300
+
 nemo (1.0.17) unstable; urgency=medium
 
   [ Column View ]
