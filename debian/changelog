@@ -1,3 +1,12 @@
+nemo (1.0.17) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix crash when opening the trash (or any view teardown): finalize no longer
+    calls gtk_widget_hide on the already-destroyed preview widgets. Preview
+    resource cleanup was split out of column_view_preview_clear.
+
+ -- Ulas <ulasalkan@gmail.com>  Sun, 02 Aug 2026 15:00:00 +0300
+
 nemo (1.0.16) unstable; urgency=medium
 
   [ Column View ]

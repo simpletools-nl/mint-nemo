@@ -135,6 +135,7 @@ static void column_view_text_cell_editing_canceled_cb (GtkCellRendererText *cell
 static void column_view_rename_done_cb (NemoFile *file, GFile *result_location, GError *error, gpointer user_data);
 static void column_view_update_preview (NemoColumnView *view);
 static void column_view_preview_clear (NemoColumnView *view);
+static void column_view_preview_free_resources (NemoColumnView *view);
 
 typedef struct {
 	const char *nick;
@@ -1736,7 +1737,7 @@ column_view_preview_refresh (NemoColumnView *view)
 }
 
 static void
-column_view_preview_clear (NemoColumnView *view)
+column_view_preview_free_resources (NemoColumnView *view)
 {
 	if (view->priv->previewed_file != NULL) {
 		if (view->priv->previewed_file_changed_id > 0) {
@@ -1753,6 +1754,12 @@ column_view_preview_clear (NemoColumnView *view)
 		g_object_unref (view->priv->preview_cancel);
 		view->priv->preview_cancel = NULL;
 	}
+}
+
+static void
+column_view_preview_clear (NemoColumnView *view)
+{
+	column_view_preview_free_resources (view);
 
 	if (view->priv->preview_panel != NULL) {
 		gtk_widget_hide (view->priv->preview_panel);
@@ -2684,7 +2691,7 @@ column_view_finalize (GObject *object)
 		view->priv->current_selection = NULL;
 	}
 
-	column_view_preview_clear (view);
+	column_view_preview_free_resources (view);
 
 	g_clear_pointer (&view->priv->last_click_path, gtk_tree_path_free);
 
