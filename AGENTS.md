@@ -455,6 +455,7 @@ Sürümü **tek kaynaktan** değiştir (workflow sürümü buradan okur):
   git push simple-nemo vX.Y.Z
   ```
 - Workflow `.deb`'i üretir ve **GitHub Release oluşturur**, ancak release **description'ını otomatik doldurmaz**.
+- **Release metni İNGİLİZCE yazılmalıdır** (kullanıcıya dönük, GitHub üzerinden okunacak). değişiklik listesi için `debian/changelog`'daki İngilizce kayıtları esas al.
 - Bu yüzden: sürümde neler değiştiğini (kullanıcı görünürü değişiklikler) **"Release description" alanına elle yaz** ve yayınla. Kullanıcıya dönük değişiklikler önceliklidir (yeni özellik, bugfix, davranış değişikliği). Kurulum komutunu da eklemek faydalı olur:
   ```bash
   sudo dpkg -i nemo_X.Y.Z_amd64.deb
