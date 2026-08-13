@@ -124,6 +124,7 @@ struct _NemoColumnViewPriv {
 	gboolean drag_in_progress;
 	gboolean ignore_button_release;
 	gboolean pending_drag;
+	gboolean collapse_on_release;
 };
 
 G_DEFINE_TYPE (NemoColumnView, nemo_column_view, NEMO_TYPE_VIEW);
@@ -1599,6 +1600,7 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 		view->priv->press_y = (gint) event->y;
 		view->priv->press_col = col;
 		view->priv->ignore_button_release = FALSE;
+		view->priv->collapse_on_release = FALSE;
 
 		g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
 
@@ -1634,18 +1636,18 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 
 				column_view_clear_other_columns_selection (view, col);
 
-				/* Already-selected row + no modifier: do not let the
-				 * default handler collapse the selection. We start the drag
-				 * manually on motion, preserving the whole selection. */
-				if (view->priv->row_selected_on_button_down &&
-				    !(event->state & (GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_MOD1_MASK))) {
-					gtk_widget_grab_focus (widget);
-					if (file != NULL) {
-						nemo_file_unref (file);
-					}
-					gtk_tree_path_free (path);
-					return GDK_EVENT_STOP;
-				}
+			/* Already-selected row + no modifier: do not let the
+			 * default handler collapse the selection immediately, so a
+			 * manual drag (started on motion) preserves the whole
+			 * selection. If the press ends as a plain click (no drag),
+			 * we collapse to just this row on button release. */
+			if (view->priv->row_selected_on_button_down &&
+			    !(event->state & (GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_MOD1_MASK))) {
+				view->priv->collapse_on_release = TRUE;
+				gtk_widget_grab_focus (widget);
+				gtk_tree_path_free (path);
+				return GDK_EVENT_STOP;
+			}
 			}
 		} else {
 			/* Blank press: clear all selections. */
@@ -1734,6 +1736,12 @@ model = gtk_tree_view_get_model (GTK_TREE_VIEW (col->tree_view));
 			gtk_tree_model_get (model, &iter, COLUMN_FILE, &file, -1);
 		}
 
+		if (view->priv->collapse_on_release) {
+			GtkTreeSelection *sel = gtk_tree_view_get_selection (GTK_TREE_VIEW (col->tree_view));
+			gtk_tree_selection_unselect_all (sel);
+			gtk_tree_selection_select_path (sel, view->priv->press_path);
+		}
+
 		if (file != NULL && nemo_file_is_directory (file)) {
 			GtkTreeSelection *sel;
 
@@ -1768,9 +1776,6 @@ model = gtk_tree_view_get_model (GTK_TREE_VIEW (col->tree_view));
 			column_view_update_selection (view);
 		}
 
-		if (file != NULL) {
-			nemo_file_unref (file);
-		}
 	} else {
 		/* Pressed on blank space. */
 		view->priv->selection_column = NULL;
@@ -1780,6 +1785,7 @@ reset:
 	view->priv->press_col = NULL;
 	view->priv->press_button = 0;
 	view->priv->pending_drag = FALSE;
+	view->priv->collapse_on_release = FALSE;
 	g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
 
 	return FALSE;
@@ -2888,7 +2894,6 @@ column_view_text_cell_edited_cb (GtkCellRendererText *cell,
 		}
 
 		g_free (name);
-		nemo_file_unref (file);
 	}
 
 	g_object_set (G_OBJECT (cell), "editable", FALSE, NULL);

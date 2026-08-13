@@ -1,3 +1,46 @@
+nemo (1.0.27) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix inability to reduce a multi-selection to a single file by clicking
+    it. column_view_on_button_press returned GDK_EVENT_STOP for an
+    already-selected row clicked without a modifier, which suppressed GTK's
+    default "collapse selection to the clicked row" behavior. This preserved
+    the selection for manual drag (started on motion) but also made it
+    impossible to click an already-selected file to select only it (e.g.
+    after selecting 20 files, or after navigating to another folder and back).
+    The view now collapses the selection to the clicked row on button release
+    when the press ends as a plain click (no drag), while still preserving the
+    whole selection when an actual drag is initiated.
+
+nemo (1.0.26) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix Segmentation fault when selecting / copying / duplicating multiple
+    files in the column view. Several handlers (column_view_on_button_press,
+    the cell-edit rename callback) called nemo_file_unref() on the file
+    pointer returned by gtk_tree_model_get(COLUMN_FILE, ...). Because
+    COLUMN_FILE is G_TYPE_POINTER, that get does NOT add a reference, so the
+    column view only owns the manual reference taken in
+    column_view_column_add_file. The spurious unref released a reference the
+    view never owned (the base view's pending-file reference), under-counting
+    it. When such a file was later removed (e.g. files appearing/disappearing
+    in an actively changing folder such as a backup directory) the base view's
+    NemoFile was freed while still referenced, and a subsequent select-all /
+    copy / duplicate (which refs the selection) dereferenced freed memory and
+    crashed. Removed the spurious unref calls so only the dedicated
+    clear/remove paths release the column view's own reference.
+
+nemo (1.0.25) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix nemo not starting at all (Segmentation fault / use-after-free at
+    startup) caused by incorrect reference handling in the column view's
+    file-changed callback. The COLUMN_FILE store column uses G_TYPE_POINTER
+    (no implicit ref on gtk_tree_model_get), so files must only be unrefed
+    when a row is actually removed from the store. Reverted the premature
+    nemo_file_unref() calls that freed files still referenced by the base
+    view's pending-files list.
+
 nemo (1.0.24) unstable; urgency=medium
 
   [ Column View ]
