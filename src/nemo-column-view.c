@@ -123,6 +123,7 @@ struct _NemoColumnViewPriv {
 	gboolean drag_started;
 	gboolean drag_in_progress;
 	gboolean ignore_button_release;
+	gboolean pending_drag;
 };
 
 G_DEFINE_TYPE (NemoColumnView, nemo_column_view, NEMO_TYPE_VIEW);
@@ -252,6 +253,8 @@ static gboolean
 column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer user_data);
 static gboolean
 column_view_on_button_release (GtkWidget *widget, GdkEventButton *event, gpointer user_data);
+static gboolean
+column_view_on_motion_notify (GtkWidget *widget, GdkEventMotion *event, gpointer user_data);
 static gboolean
 column_view_on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data);
 
@@ -421,6 +424,8 @@ column_view_column_new (NemoColumnView *view)
 			  G_CALLBACK (column_view_on_button_press), view);
 	g_signal_connect (col->tree_view, "button-release-event",
 			  G_CALLBACK (column_view_on_button_release), view);
+	g_signal_connect (col->tree_view, "motion-notify-event",
+			  G_CALLBACK (column_view_on_motion_notify), view);
 	g_signal_connect (col->tree_view, "key-press-event",
 			  G_CALLBACK (column_view_on_key_press), view);
 
@@ -463,7 +468,7 @@ column_view_drag_each_selected (NemoDragEachSelectedItemDataGet iteratee,
 			char *path_str;
 
 			gtk_tree_model_get (model, &iter, COLUMN_FILE, &file, -1);
-			if (file != NULL) {
+			if (file != NULL && NEMO_IS_FILE (file)) {
 				nemo_file_ref (file);
 				path = gtk_tree_model_get_path (model, &iter);
 				tv_column = gtk_tree_view_get_column (GTK_TREE_VIEW (col->tree_view), 0);
@@ -812,27 +817,6 @@ column_view_drag_motion (GtkWidget *widget,
 static void
 column_view_column_setup_dnd (NemoColumnViewColumn *col)
 {
-	GtkTargetList *targets;
-
-	gtk_tree_view_enable_model_drag_source (GTK_TREE_VIEW (col->tree_view),
-						GDK_BUTTON1_MASK,
-						column_view_drag_types,
-						G_N_ELEMENTS (column_view_drag_types),
-						GDK_ACTION_MOVE | GDK_ACTION_COPY |
-						GDK_ACTION_LINK | GDK_ACTION_ASK);
-
-	targets = gtk_drag_source_get_target_list (col->tree_view);
-	if (targets == NULL) {
-		targets = gtk_target_list_new (column_view_drag_types,
-					      G_N_ELEMENTS (column_view_drag_types));
-		gtk_drag_source_set_target_list (col->tree_view, targets);
-		gtk_target_list_unref (targets);
-		targets = gtk_drag_source_get_target_list (col->tree_view);
-	}
-	if (targets != NULL) {
-		gtk_target_list_add_text_targets (targets, NEMO_ICON_DND_TEXT);
-	}
-
 	g_signal_connect_object (col->tree_view, "drag-begin",
 				 G_CALLBACK (column_view_drag_begin), col->view, 0);
 	g_signal_connect_object (col->tree_view, "drag-end",
@@ -1628,6 +1612,7 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 			view->priv->row_selected_on_button_down =
 				gtk_tree_selection_path_is_selected (sel, path);
 			view->priv->press_path = gtk_tree_path_copy (path);
+			view->priv->pending_drag = TRUE;
 
 			if (col != NULL) {
 				/* Click-to-rename: second slow click on the file name text. */
@@ -1649,11 +1634,9 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 
 				column_view_clear_other_columns_selection (view, col);
 
-				/* Pressing an already-selected row without a modifier must
-				 * not let the default handler collapse the selection, or a
-				 * subsequent drag would only carry this single row. Stop the
-				 * event so the automatic drag source keeps the whole
-				 * selection intact for the drag. */
+				/* Already-selected row + no modifier: do not let the
+				 * default handler collapse the selection. We start the drag
+				 * manually on motion, preserving the whole selection. */
 				if (view->priv->row_selected_on_button_down &&
 				    !(event->state & (GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_MOD1_MASK))) {
 					gtk_widget_grab_focus (widget);
@@ -1796,9 +1779,43 @@ model = gtk_tree_view_get_model (GTK_TREE_VIEW (col->tree_view));
 reset:
 	view->priv->press_col = NULL;
 	view->priv->press_button = 0;
+	view->priv->pending_drag = FALSE;
 	g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
 
 	return FALSE;
+}
+
+static gboolean
+column_view_on_motion_notify (GtkWidget *widget, GdkEventMotion *event, gpointer user_data)
+{
+	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
+	GtkTargetList *targets;
+
+	if (!view->priv->pending_drag) {
+		return FALSE;
+	}
+
+	if (!gtk_drag_check_threshold (widget,
+				       view->priv->press_x,
+				       view->priv->press_y,
+				       event->x, event->y)) {
+		return FALSE;
+	}
+
+	targets = gtk_target_list_new (column_view_drag_types,
+				      G_N_ELEMENTS (column_view_drag_types));
+	gtk_target_list_add_text_targets (targets, NEMO_ICON_DND_TEXT);
+
+	view->priv->pending_drag = FALSE;
+	view->priv->drag_started = FALSE;
+
+	gtk_drag_begin (widget, targets,
+			GDK_ACTION_MOVE | GDK_ACTION_COPY | GDK_ACTION_LINK | GDK_ACTION_ASK,
+			view->priv->press_button, (GdkEvent *) event);
+
+	gtk_target_list_unref (targets);
+
+	return GDK_EVENT_STOP;
 }
 
 static gboolean

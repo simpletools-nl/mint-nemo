@@ -1,3 +1,22 @@
+nemo (1.0.24) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix drag-and-drop of multiple selected files not starting and crashing
+    after the 1.0.23 change:
+    - Replace the broken approach (blocking GtkTreeView's button-press event
+      while still using gtk_tree_view_enable_model_drag_source) with the
+      proven list-view pattern: the drag is initiated manually via
+      gtk_drag_begin on motion, preserving the full multi-selection.
+    - Remove gtk_tree_view_enable_model_drag_source; the drag source target
+      list is now built on demand in column_view_on_motion_notify.
+    - Already-selected rows clicked without a modifier no longer let the
+      default handler collapse the selection, so all selected files are
+      carried by the drag.
+    - Harden column_view_drag_each_selected against stale/freed NemoFile
+      entries with NEMO_IS_FILE.
+
+ -- Ulas <ulasalkan@gmail.com>  Thu, 13 Aug 2026 12:00:00 +0300
+
 nemo (1.0.23) unstable; urgency=medium
 
   [ Column View ]
