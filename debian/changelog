@@ -1,3 +1,76 @@
+nemo (1.0.23) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix drag-and-drop of multiple selected files in the column view only
+    moving a single file:
+    - In column_view_on_button_press, when pressing an already-selected row
+      without a modifier, stop the event (GDK_EVENT_STOP) so the default
+      GtkTreeView handler no longer collapses the selection to that single
+      row. The automatic drag source then keeps the whole selection and the
+      existing column_view_drag_data_get carries all selected files.
+
+ -- Ulas <ulasalkan@gmail.com>  Thu, 13 Aug 2026 11:00:00 +0300
+
+nemo (1.0.22) unstable; urgency=medium
+
+
+
+
+  [ Column View ]
+  * Fix crash (SIGSEGV in nemo_file_can_get_size) when selecting/dragging
+    multiple files:
+    - Skip NULL/stale NemoFile entries when building the column-view
+      selection (get_selection and set_selection) and when reacting to a
+      file change, using NEMO_IS_FILE checks so a freed file pointer can
+      never enter the selection list.
+    - Harden the shared nemo_view_display_selection_info loop to ignore
+      NULL entries defensively.
+
+ -- Ulas <ulasalkan@gmail.com>  Thu, 13 Aug 2026 10:00:00 +0300
+
+nemo (1.0.21) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix drag-and-drop crash (SIGSEGV in nemo_file_ref) introduced once the
+    earlier use-after-free crashes were fixed:
+    - Clear the "column-view-col" back-pointer on the drag destination when a
+      column is freed, so an in-progress drag can no longer resolve a freed
+      column struct.
+    - Guard all drag-and-drop and dwell callbacks with the column "disposed"
+      flag, and add NEMO_IS_FILE checks before reffing files fetched from a
+      column's list store.
+
+ -- Ulas <ulasalkan@gmail.com>  Thu, 13 Aug 2026 09:00:00 +0300
+
+nemo (1.0.20) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix multiple crashes (SIGSEGV/SIGABRT) caused by column-view use-after-free
+    and NemoFile double-unref:
+    - Mark each column as "disposed" before tear-down and defer the actual
+      struct free to an idle handler, so directory/clipboard signal callbacks
+      already queued in the main loop bail out instead of touching freed
+      widgets or list stores.
+    - Harden the column validity guard and every column callback with the
+      disposed flag and NEMO_IS_FILE checks.
+    - Make column clearing idempotent and skip non-file pointers to avoid
+      double-unref of NemoFile objects.
+
+ -- Ulas <ulasalkan@gmail.com>  Thu, 13 Aug 2026 12:00:00 +0300
+
+nemo (1.0.19) unstable; urgency=medium
+
+  [ Column View ]
+  * Add drag & drop between columns: each column is now both a drag source
+    and a drop target. You can drag files or directories from one column and
+    drop them onto another. A directory that you hover over while dragging
+    opens automatically after a short dwell (Finder-style auto-expand).
+  * Click behaviour moved from mouse press to mouse release so dragging works:
+    a plain left click still navigates into a directory, but a press that turns
+    into a drag no longer also navigates.
+
+ -- Ulas <ulasalkan@gmail.com>  Wed, 12 Aug 2026 18:00:00 +0300
+
 nemo (1.0.18) unstable; urgency=medium
 
   [ Column View ]

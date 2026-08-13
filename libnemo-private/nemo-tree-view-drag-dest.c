@@ -71,6 +71,7 @@ struct _NemoTreeViewDragDestDetails {
 
 	char *direct_save_uri;
     gboolean strict_drop;
+    gboolean always_ask_icon_list;
 };
 
 enum {
@@ -424,6 +425,10 @@ get_drop_action (NemoTreeViewDragDest *dest,
                                                  &dest->details->desktop_dnd_can_delete_source);
 
 		g_free (drop_target);
+
+		if (dest->details->always_ask_icon_list && action != 0) {
+			return GDK_ACTION_ASK;
+		}
 
 		return action;
 
@@ -1213,4 +1218,13 @@ nemo_tree_view_drag_dest_new (GtkTreeView *tree_view, gboolean strict_drop)
 				 dest, 0);
 
 	return dest;
+}
+
+void
+nemo_tree_view_drag_dest_set_always_ask_icon_list (NemoTreeViewDragDest *dest,
+                                                   gboolean              always_ask)
+{
+	g_return_if_fail (NEMO_IS_TREE_VIEW_DRAG_DEST (dest));
+
+	dest->details->always_ask_icon_list = always_ask;
 }

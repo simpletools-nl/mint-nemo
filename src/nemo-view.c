@@ -3095,6 +3095,9 @@ nemo_view_display_selection_info (NemoView *view)
 
 	for (p = selection; p != NULL; p = p->next) {
 		file = p->data;
+		if (file == NULL) {
+			continue;
+		}
 		if (nemo_file_is_directory (file)) {
 			folder_count++;
 			if (nemo_file_get_directory_item_count (file, &file_item_count, NULL)) {

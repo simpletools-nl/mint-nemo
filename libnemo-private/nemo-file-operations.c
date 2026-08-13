@@ -5269,6 +5269,19 @@ move_file_prepare (CopyMoveJob *move_job,
 		flags |= G_FILE_COPY_OVERWRITE;
 	}
 
+	if (dest == NULL) {
+		/* get_target_file() should never return NULL, but guard
+		 * against a NULL destination anyway to avoid crashing the
+		 * worker thread inside g_file_move()/IS_IO_ERROR(). */
+		if (job->skip_all_error) {
+			goto out;
+		}
+		g_clear_error (&error);
+		g_set_error_literal (&error, G_IO_ERROR, G_IO_ERROR_FAILED,
+				     _("Failed to determine the destination location."));
+		goto error_report;
+	}
+
 	error = NULL;
 	if (g_file_move (src, dest,
 			 flags,
@@ -5307,7 +5320,8 @@ move_file_prepare (CopyMoveJob *move_job,
 		return;
 	}
 
-	if (IS_IO_ERROR (error, INVALID_FILENAME) &&
+	if (error != NULL &&
+	    IS_IO_ERROR (error, INVALID_FILENAME) &&
 	    !handled_invalid_filename) {
 		g_error_free (error);
 		handled_invalid_filename = TRUE;
@@ -5327,6 +5341,7 @@ move_file_prepare (CopyMoveJob *move_job,
 
 	/* Conflict */
 	else if (!overwrite &&
+		 error != NULL &&
 		 IS_IO_ERROR (error, EXISTS)) {
 		gboolean is_merge;
 		ConflictResponseData *resp;
@@ -5394,10 +5409,11 @@ move_file_prepare (CopyMoveJob *move_job,
 		}
 	}
 
-	else if (IS_IO_ERROR (error, WOULD_RECURSE) ||
-		 IS_IO_ERROR (error, WOULD_MERGE) ||
-		 IS_IO_ERROR (error, NOT_SUPPORTED) ||
-		 (overwrite && IS_IO_ERROR (error, IS_DIRECTORY))) {
+	else if (error != NULL &&
+		 (IS_IO_ERROR (error, WOULD_RECURSE) ||
+		  IS_IO_ERROR (error, WOULD_MERGE) ||
+		  IS_IO_ERROR (error, NOT_SUPPORTED) ||
+		  (overwrite && IS_IO_ERROR (error, IS_DIRECTORY)))) {
 		g_error_free (error);
 
 		fallback = move_copy_file_callback_new (src,
@@ -5407,18 +5423,19 @@ move_file_prepare (CopyMoveJob *move_job,
 		*fallback_files = g_list_prepend (*fallback_files, fallback);
 	}
 
-	else if (IS_IO_ERROR (error, CANCELLED)) {
+	else if (error != NULL && IS_IO_ERROR (error, CANCELLED)) {
 		g_error_free (error);
 	}
 
 	/* Other error */
 	else {
+error_report:
 		if (job->skip_all_error) {
 			goto out;
 		}
 		primary = f (_("Error while moving \"%B\"."), src);
 		secondary = f (_("There was an error moving the file into %F."), dest_dir);
-		details = error->message;
+		details = (error != NULL) ? error->message : NULL;
 
 		response = run_warning (job,
 					primary,

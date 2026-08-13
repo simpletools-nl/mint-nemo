@@ -18,6 +18,7 @@
 #include <gtk/gtk.h>
 #include <glib/gi18n.h>
 #include <libnemo-private/nemo-clipboard-monitor.h>
+#include <libnemo-private/nemo-clipboard.h>
 #include <libnemo-private/nemo-dnd.h>
 #include <libnemo-private/nemo-file.h>
 #include <libnemo-private/nemo-file-dnd.h>
@@ -27,9 +28,12 @@
 #include <libnemo-private/nemo-icon-names.h>
 #include <libnemo-private/nemo-metadata.h>
 #include <libnemo-private/nemo-thumbnails.h>
+#include <libnemo-private/nemo-tree-view-drag-dest.h>
 #include <libnemo-private/nemo-ui-utilities.h>
 
 #define DEFAULT_COLUMN_WIDTH 250
+
+#define DWELL_OPEN_DELAY 600
 
 enum {
 	COLUMN_ICON = 0,
@@ -64,6 +68,13 @@ typedef struct {
 	gpointer monitor_client;
 
 	gboolean loading;
+	gboolean disposed;
+	gboolean cleared;
+
+	NemoTreeViewDragDest *drag_dest;
+
+	guint dwell_timeout_id;
+	GtkTreePath *dwell_path;
 } NemoColumnViewColumn;
 
 struct _NemoColumnViewPriv {
@@ -102,6 +113,16 @@ struct _NemoColumnViewPriv {
 	NemoFile *previewed_file;
 	gulong previewed_file_changed_id;
 	GCancellable *preview_cancel;
+
+	guint press_button;
+	gint press_x;
+	gint press_y;
+	GtkTreePath *press_path;
+	NemoColumnViewColumn *press_col;
+	gboolean row_selected_on_button_down;
+	gboolean drag_started;
+	gboolean drag_in_progress;
+	gboolean ignore_button_release;
 };
 
 G_DEFINE_TYPE (NemoColumnView, nemo_column_view, NEMO_TYPE_VIEW);
@@ -137,11 +158,46 @@ static void column_view_rename_done_cb (NemoFile *file, GFile *result_location, 
 static void column_view_update_preview (NemoColumnView *view);
 static void column_view_preview_clear (NemoColumnView *view);
 static void column_view_preview_free_resources (NemoColumnView *view);
+static void column_view_open_directory (NemoColumnView *view, NemoColumnViewColumn *col, NemoFile *file);
+static void column_view_drag_begin (GtkWidget *widget, GdkDragContext *context, NemoColumnView *view);
+static void column_view_drag_end (GtkWidget *widget, GdkDragContext *context, NemoColumnView *view);
+static void column_view_drag_data_get (GtkWidget *widget, GdkDragContext *context,
+				       GtkSelectionData *selection_data, guint info, guint time,
+				       NemoColumnView *view);
+static char * column_view_dnd_get_root_uri (NemoTreeViewDragDest *dest, gpointer user_data);
+static NemoFile * column_view_dnd_get_file_for_path (NemoTreeViewDragDest *dest, GtkTreePath *path,
+						     gpointer user_data);
+static void column_view_dnd_move_copy_items (NemoTreeViewDragDest *dest, const GList *item_uris,
+					     const char *target_uri, GdkDragAction action, int x, int y,
+					     gpointer user_data);
+static void column_view_dnd_handle_netscape_url (NemoTreeViewDragDest *dest, const char *url,
+						 const char *target_uri, GdkDragAction action, int x, int y,
+						 gpointer user_data);
+static void column_view_dnd_handle_uri_list (NemoTreeViewDragDest *dest, const char *uri_list,
+					     const char *target_uri, GdkDragAction action, int x, int y,
+					     gpointer user_data);
+static void column_view_dnd_handle_text (NemoTreeViewDragDest *dest, const char *text,
+					 const char *target_uri, GdkDragAction action, int x, int y,
+					 gpointer user_data);
+static void column_view_dnd_handle_raw (NemoTreeViewDragDest *dest, char *raw_data, int length,
+					const char *target_uri, const char *direct_save_uri,
+					GdkDragAction action, int x, int y, gpointer user_data);
+static gboolean column_view_drag_motion (GtkWidget *widget, GdkDragContext *context,
+					 int x, int y, guint32 time, NemoColumnView *view);
+static void column_view_column_setup_dnd (NemoColumnViewColumn *col);
+static NemoColumnViewColumn * column_view_get_column_for_tree_view (NemoColumnView *view, GtkWidget *tree_view);
+static void column_view_drag_begin (GtkWidget *widget, GdkDragContext *context, NemoColumnView *view);
+static void column_view_drag_end (GtkWidget *widget, GdkDragContext *context, NemoColumnView *view);
 
 typedef struct {
 	const char *nick;
 	NemoFileSortType type;
 } ColumnViewSortMap;
+
+static const GtkTargetEntry column_view_drag_types [] = {
+	{ (char *)NEMO_ICON_DND_GNOME_ICON_LIST_TYPE, 0, NEMO_ICON_DND_GNOME_ICON_LIST },
+	{ (char *)NEMO_ICON_DND_URI_LIST_TYPE, 0, NEMO_ICON_DND_URI_LIST },
+};
 
 static const ColumnViewSortMap column_view_sort_map[] = {
 	{ "name", NEMO_FILE_SORT_BY_DISPLAY_NAME },
@@ -195,7 +251,33 @@ column_view_on_cursor_changed (GtkTreeView *tree_view, gpointer user_data);
 static gboolean
 column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer user_data);
 static gboolean
+column_view_on_button_release (GtkWidget *widget, GdkEventButton *event, gpointer user_data);
+static gboolean
 column_view_on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data);
+
+static gint
+column_view_row_compare_names (GtkTreeModel *model, GtkTreeIter *a, GtkTreeIter *b)
+{
+	gchar *name_a = NULL;
+	gchar *name_b = NULL;
+	gint result;
+
+	gtk_tree_model_get (model, a, COLUMN_NAME, &name_a, -1);
+	gtk_tree_model_get (model, b, COLUMN_NAME, &name_b, -1);
+
+	if (name_a == NULL) {
+		result = (name_b == NULL) ? 0 : 1;
+	} else if (name_b == NULL) {
+		result = -1;
+	} else {
+		result = g_utf8_collate (name_a, name_b);
+	}
+
+	g_free (name_a);
+	g_free (name_b);
+
+	return result;
+}
 
 static gint
 column_view_row_compare_files (GtkTreeModel *model, GtkTreeIter *a, GtkTreeIter *b, gpointer user_data)
@@ -203,23 +285,31 @@ column_view_row_compare_files (GtkTreeModel *model, GtkTreeIter *a, GtkTreeIter 
 	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
 	NemoFile *file_a = NULL;
 	NemoFile *file_b = NULL;
+	gboolean dir_a;
+	gboolean dir_b;
 	gint result;
 
-	gtk_tree_model_get (model, a, COLUMN_FILE, &file_a, -1);
-	gtk_tree_model_get (model, b, COLUMN_FILE, &file_b, -1);
+	/* Structural safety: never deref the stored NemoFile during a sort.
+	 * A file can be marked gone (its info cleared) or freed while it
+	 * still lives in the list store, so we sort exclusively on the cached
+	 * COLUMN_NAME / COLUMN_IS_DIRECTORY values. The NemoFile pointers are
+	 * only compared for identity, which is safe even if they are stale. */
+	gtk_tree_model_get (model, a, COLUMN_FILE, &file_a,
+			    COLUMN_IS_DIRECTORY, &dir_a, -1);
+	gtk_tree_model_get (model, b, COLUMN_FILE, &file_b,
+			    COLUMN_IS_DIRECTORY, &dir_b, -1);
 
-	if (file_a == NULL) {
-		return (file_b == NULL) ? 0 : 1;
-	}
-	if (file_b == NULL) {
-		return -1;
+	/* Directories first, like nemo_file_compare_for_sort_internal(): this
+	 * stays respected even when the name order is reversed below. */
+	if (dir_a != dir_b) {
+		return dir_a ? -1 : 1;
 	}
 
-	result = nemo_file_compare_for_sort (file_a, file_b, view->priv->sort_type,
-					     nemo_view_should_sort_directories_first (NEMO_VIEW (view)),
-					     nemo_view_should_sort_favorites_first (NEMO_VIEW (view)),
-					     view->priv->sort_reversed,
-					     NULL);
+	result = column_view_row_compare_names (model, a, b);
+
+	if (view->priv->sort_reversed) {
+		return -result;
+	}
 
 	return result;
 }
@@ -232,6 +322,8 @@ column_view_column_new (NemoColumnView *view)
 
 	col = g_new0 (NemoColumnViewColumn, 1);
 	col->view = view;
+	col->disposed = FALSE;
+	col->cleared = FALSE;
 
 	col->column_widget = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
 
@@ -327,18 +419,474 @@ column_view_column_new (NemoColumnView *view)
 			  G_CALLBACK (column_view_on_cursor_changed), view);
 	g_signal_connect (col->tree_view, "button-press-event",
 			  G_CALLBACK (column_view_on_button_press), view);
+	g_signal_connect (col->tree_view, "button-release-event",
+			  G_CALLBACK (column_view_on_button_release), view);
 	g_signal_connect (col->tree_view, "key-press-event",
 			  G_CALLBACK (column_view_on_key_press), view);
 
 	g_object_unref (col->list_store);
 
+	column_view_column_setup_dnd (col);
+
 	return col;
+}
+
+typedef struct {
+	NemoColumnViewColumn *col;
+	gint drag_begin_x;
+	gint drag_begin_y;
+} ColumnViewDragContext;
+
+static void
+column_view_drag_each_selected (NemoDragEachSelectedItemDataGet iteratee,
+				gpointer iterator_context,
+				gpointer data)
+{
+	ColumnViewDragContext *ctx = iterator_context;
+	NemoColumnViewColumn *col = ctx->col;
+	GtkTreeSelection *sel;
+	GtkTreeModel *model;
+	GtkTreeIter iter;
+	gboolean valid;
+
+	sel = gtk_tree_view_get_selection (GTK_TREE_VIEW (col->tree_view));
+	model = GTK_TREE_MODEL (col->list_store);
+
+	valid = gtk_tree_model_get_iter_first (model, &iter);
+	while (valid) {
+		if (gtk_tree_selection_iter_is_selected (sel, &iter)) {
+			NemoFile *file;
+			GtkTreePath *path;
+			GtkTreeViewColumn *tv_column;
+			GdkRectangle cell_area;
+			char *uri;
+			char *path_str;
+
+			gtk_tree_model_get (model, &iter, COLUMN_FILE, &file, -1);
+			if (file != NULL) {
+				nemo_file_ref (file);
+				path = gtk_tree_model_get_path (model, &iter);
+				tv_column = gtk_tree_view_get_column (GTK_TREE_VIEW (col->tree_view), 0);
+				gtk_tree_view_get_cell_area (GTK_TREE_VIEW (col->tree_view),
+							     path, tv_column, &cell_area);
+
+				uri = nemo_file_get_local_uri (file);
+				path_str = nemo_file_get_path (file);
+
+				(*iteratee) (uri, path_str,
+					     cell_area.x - ctx->drag_begin_x,
+					     cell_area.y - ctx->drag_begin_y,
+					     cell_area.width, cell_area.height,
+					     data);
+
+				g_free (uri);
+				g_free (path_str);
+				gtk_tree_path_free (path);
+				nemo_file_unref (file);
+			}
+		}
+		valid = gtk_tree_model_iter_next (model, &iter);
+	}
+}
+
+static void
+column_view_drag_data_get (GtkWidget *widget,
+			   GdkDragContext *context,
+			   GtkSelectionData *selection_data,
+			   guint info,
+			   guint time,
+			   NemoColumnView *view)
+{
+	NemoColumnViewColumn *col =
+		column_view_get_column_for_tree_view (view, widget);
+	ColumnViewDragContext ctx;
+
+	if (col == NULL) {
+		return;
+	}
+
+	ctx.col = col;
+	ctx.drag_begin_x = col->view->priv->press_x;
+	ctx.drag_begin_y = col->view->priv->press_y;
+
+	if (info == NEMO_ICON_DND_GNOME_ICON_LIST ||
+	    info == NEMO_ICON_DND_URI_LIST ||
+	    info == NEMO_ICON_DND_TEXT) {
+		nemo_drag_drag_data_get (widget, context, selection_data, info, time,
+					 &ctx, column_view_drag_each_selected);
+	}
+
+	g_signal_stop_emission_by_name (widget, "drag-data-get");
+}
+
+static void
+column_view_drag_begin (GtkWidget *widget,
+			GdkDragContext *context,
+			NemoColumnView *view)
+{
+	NemoColumnViewColumn *col =
+		column_view_get_column_for_tree_view (view, widget);
+	GtkTreeIter iter;
+	GdkPixbuf *pixbuf = NULL;
+	cairo_surface_t *surface = NULL;
+
+	if (col == NULL) {
+		return;
+	}
+
+	view->priv->drag_started = TRUE;
+	view->priv->drag_in_progress = TRUE;
+
+	if (view->priv->press_path != NULL &&
+	    gtk_tree_model_get_iter (GTK_TREE_MODEL (col->list_store), &iter,
+				     view->priv->press_path)) {
+		gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
+				    COLUMN_ICON, &pixbuf, -1);
+	}
+
+	if (pixbuf != NULL) {
+		surface = gdk_cairo_surface_create_from_pixbuf (pixbuf, 1, NULL);
+		g_object_unref (pixbuf);
+	}
+
+	if (surface != NULL) {
+		gtk_drag_set_icon_surface (context, surface);
+		cairo_surface_destroy (surface);
+	} else {
+		gtk_drag_set_icon_default (context);
+	}
+}
+
+static void
+column_view_drag_end (GtkWidget *widget,
+		      GdkDragContext *context,
+		      NemoColumnView *view)
+{
+	GList *l;
+
+	view->priv->drag_started = FALSE;
+	view->priv->drag_in_progress = FALSE;
+
+	for (l = view->priv->columns; l != NULL; l = l->next) {
+		NemoColumnViewColumn *c = l->data;
+		if (c->dwell_timeout_id > 0) {
+			g_source_remove (c->dwell_timeout_id);
+			c->dwell_timeout_id = 0;
+		}
+		g_clear_pointer (&c->dwell_path, gtk_tree_path_free);
+	}
+}
+
+static NemoColumnViewColumn *
+column_view_dnd_column_from_dest (NemoTreeViewDragDest *dest)
+{
+	NemoColumnViewColumn *col;
+
+	col = g_object_get_data (G_OBJECT (dest), "column-view-col");
+
+	if (col != NULL && col->disposed) {
+		return NULL;
+	}
+
+	return col;
+}
+
+static char *
+column_view_dnd_get_root_uri (NemoTreeViewDragDest *dest,
+			      gpointer user_data)
+{
+	NemoColumnViewColumn *col = column_view_dnd_column_from_dest (dest);
+
+	if (col != NULL && col->location != NULL) {
+		return g_file_get_uri (col->location);
+	}
+
+	return column_view_get_backing_uri (NEMO_VIEW (NEMO_COLUMN_VIEW (user_data)));
+}
+
+static NemoFile *
+column_view_dnd_get_file_for_path (NemoTreeViewDragDest *dest,
+				   GtkTreePath *path,
+				   gpointer user_data)
+{
+	NemoColumnViewColumn *col = column_view_dnd_column_from_dest (dest);
+	GtkTreeIter iter;
+	NemoFile *file = NULL;
+
+	if (col == NULL || path == NULL) {
+		return NULL;
+	}
+
+	if (col->disposed) {
+		return NULL;
+	}
+
+	if (gtk_tree_model_get_iter (GTK_TREE_MODEL (col->list_store), &iter, path)) {
+		gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
+				    COLUMN_FILE, &file, -1);
+		if (file != NULL && NEMO_IS_FILE (file)) {
+			nemo_file_ref (file);
+		} else {
+			file = NULL;
+		}
+	}
+
+	return file;
+}
+
+static void
+column_view_dnd_move_copy_items (NemoTreeViewDragDest *dest,
+				 const GList *item_uris,
+				 const char *target_uri,
+				 GdkDragAction action,
+				 int x, int y,
+				 gpointer user_data)
+{
+	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
+
+	if (action == GDK_ACTION_ASK) {
+		action = nemo_drag_drop_action_ask (GTK_WIDGET (view),
+						   GDK_ACTION_MOVE | GDK_ACTION_COPY | GDK_ACTION_LINK);
+		if (action == 0) {
+			return;
+		}
+	}
+
+	nemo_clipboard_clear_if_colliding_uris (GTK_WIDGET (view),
+						item_uris,
+						nemo_view_get_copied_files_atom (NEMO_VIEW (view)));
+	nemo_view_move_copy_items (NEMO_VIEW (view),
+				   item_uris,
+				   NULL,
+				   target_uri,
+				   action,
+				   x, y);
+}
+
+static void
+column_view_dnd_handle_netscape_url (NemoTreeViewDragDest *dest,
+				     const char *url,
+				     const char *target_uri,
+				     GdkDragAction action,
+				     int x, int y,
+				     gpointer user_data)
+{
+	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
+
+	nemo_view_handle_netscape_url_drop (NEMO_VIEW (view), url, target_uri, action, x, y);
+}
+
+static void
+column_view_dnd_handle_uri_list (NemoTreeViewDragDest *dest,
+				 const char *uri_list,
+				 const char *target_uri,
+				 GdkDragAction action,
+				 int x, int y,
+				 gpointer user_data)
+{
+	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
+
+	nemo_view_handle_uri_list_drop (NEMO_VIEW (view), uri_list, target_uri, action, x, y);
+}
+
+static void
+column_view_dnd_handle_text (NemoTreeViewDragDest *dest,
+			     const char *text,
+			     const char *target_uri,
+			     GdkDragAction action,
+			     int x, int y,
+			     gpointer user_data)
+{
+	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
+
+	nemo_view_handle_text_drop (NEMO_VIEW (view), text, target_uri, action, x, y);
+}
+
+static void
+column_view_dnd_handle_raw (NemoTreeViewDragDest *dest,
+			    char *raw_data,
+			    int length,
+			    const char *target_uri,
+			    const char *direct_save_uri,
+			    GdkDragAction action,
+			    int x, int y,
+			    gpointer user_data)
+{
+	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
+
+	nemo_view_handle_raw_drop (NEMO_VIEW (view), raw_data, length, target_uri,
+				   direct_save_uri, action, x, y);
+}
+
+static gboolean
+column_view_dwell_timeout (gpointer user_data)
+{
+	NemoColumnViewColumn *col = user_data;
+	GtkTreeIter iter;
+	NemoFile *file = NULL;
+
+	col->dwell_timeout_id = 0;
+
+	if (col->disposed) {
+		return G_SOURCE_REMOVE;
+	}
+
+	if (col->dwell_path != NULL &&
+	    gtk_tree_model_get_iter (GTK_TREE_MODEL (col->list_store), &iter,
+				     col->dwell_path)) {
+		gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
+				    COLUMN_FILE, &file, -1);
+		if (file != NULL && NEMO_IS_FILE (file)) {
+			nemo_file_ref (file);
+			if (nemo_file_is_directory (file)) {
+				column_view_open_directory (col->view, col, file);
+			}
+			nemo_file_unref (file);
+		}
+	}
+
+	return G_SOURCE_REMOVE;
+}
+
+static gboolean
+column_view_drag_motion (GtkWidget *widget,
+			 GdkDragContext *context,
+			 int x, int y,
+			 guint32 time,
+			 NemoColumnView *view)
+{
+	NemoColumnViewColumn *col =
+		column_view_get_column_for_tree_view (view, widget);
+	GtkTreePath *path = NULL;
+	GtkTreeIter iter;
+	gboolean is_dir = FALSE;
+
+	if (col == NULL) {
+		return FALSE;
+	}
+
+	if (!view->priv->drag_in_progress) {
+		return FALSE;
+	}
+
+	if (gtk_tree_view_get_path_at_pos (GTK_TREE_VIEW (widget), x, y,
+					   &path, NULL, NULL, NULL) &&
+	    gtk_tree_model_get_iter (GTK_TREE_MODEL (col->list_store), &iter, path)) {
+		NemoFile *file;
+
+		gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
+				    COLUMN_FILE, &file, -1);
+		if (file != NULL) {
+			nemo_file_ref (file);
+			is_dir = nemo_file_is_directory (file);
+			nemo_file_unref (file);
+		}
+	}
+
+	if (is_dir && path != NULL) {
+		if (col->dwell_path == NULL ||
+		    gtk_tree_path_compare (col->dwell_path, path) != 0) {
+			if (col->dwell_timeout_id > 0) {
+				g_source_remove (col->dwell_timeout_id);
+			}
+			g_clear_pointer (&col->dwell_path, gtk_tree_path_free);
+			col->dwell_path = gtk_tree_path_copy (path);
+			col->dwell_timeout_id = g_timeout_add (DWELL_OPEN_DELAY,
+							       column_view_dwell_timeout, col);
+		}
+	} else {
+		if (col->dwell_timeout_id > 0) {
+			g_source_remove (col->dwell_timeout_id);
+			col->dwell_timeout_id = 0;
+		}
+		g_clear_pointer (&col->dwell_path, gtk_tree_path_free);
+	}
+
+	if (path != NULL) {
+		gtk_tree_path_free (path);
+	}
+
+	return FALSE;
+}
+
+static void
+column_view_column_setup_dnd (NemoColumnViewColumn *col)
+{
+	GtkTargetList *targets;
+
+	gtk_tree_view_enable_model_drag_source (GTK_TREE_VIEW (col->tree_view),
+						GDK_BUTTON1_MASK,
+						column_view_drag_types,
+						G_N_ELEMENTS (column_view_drag_types),
+						GDK_ACTION_MOVE | GDK_ACTION_COPY |
+						GDK_ACTION_LINK | GDK_ACTION_ASK);
+
+	targets = gtk_drag_source_get_target_list (col->tree_view);
+	if (targets == NULL) {
+		targets = gtk_target_list_new (column_view_drag_types,
+					      G_N_ELEMENTS (column_view_drag_types));
+		gtk_drag_source_set_target_list (col->tree_view, targets);
+		gtk_target_list_unref (targets);
+		targets = gtk_drag_source_get_target_list (col->tree_view);
+	}
+	if (targets != NULL) {
+		gtk_target_list_add_text_targets (targets, NEMO_ICON_DND_TEXT);
+	}
+
+	g_signal_connect_object (col->tree_view, "drag-begin",
+				 G_CALLBACK (column_view_drag_begin), col->view, 0);
+	g_signal_connect_object (col->tree_view, "drag-end",
+				 G_CALLBACK (column_view_drag_end), col->view, 0);
+	g_signal_connect_object (col->tree_view, "drag-data-get",
+				 G_CALLBACK (column_view_drag_data_get), col->view, 0);
+
+	col->drag_dest = nemo_tree_view_drag_dest_new (GTK_TREE_VIEW (col->tree_view), TRUE);
+
+	nemo_tree_view_drag_dest_set_always_ask_icon_list (col->drag_dest, TRUE);
+
+	g_object_set_data (G_OBJECT (col->drag_dest), "column-view-col", col);
+
+	g_signal_connect_object (col->drag_dest, "get_root_uri",
+				 G_CALLBACK (column_view_dnd_get_root_uri), col->view, 0);
+	g_signal_connect_object (col->drag_dest, "get_file_for_path",
+				 G_CALLBACK (column_view_dnd_get_file_for_path), col->view, 0);
+	g_signal_connect_object (col->drag_dest, "move_copy_items",
+				 G_CALLBACK (column_view_dnd_move_copy_items), col->view, 0);
+	g_signal_connect_object (col->drag_dest, "handle_netscape_url",
+				 G_CALLBACK (column_view_dnd_handle_netscape_url), col->view, 0);
+	g_signal_connect_object (col->drag_dest, "handle_uri_list",
+				 G_CALLBACK (column_view_dnd_handle_uri_list), col->view, 0);
+	g_signal_connect_object (col->drag_dest, "handle_text",
+				 G_CALLBACK (column_view_dnd_handle_text), col->view, 0);
+	g_signal_connect_object (col->drag_dest, "handle_raw",
+				 G_CALLBACK (column_view_dnd_handle_raw), col->view, 0);
+
+	g_signal_connect_object (col->tree_view, "drag-motion",
+				 G_CALLBACK (column_view_drag_motion), col->view, 0);
+}
+
+static gboolean
+column_view_column_free_idle (gpointer data)
+{
+	NemoColumnViewColumn *col = data;
+
+	g_free (col);
+
+	return G_SOURCE_REMOVE;
 }
 
 static void
 column_view_column_free (NemoColumnViewColumn *col)
 {
 	if (col == NULL) return;
+
+	/* Mark the column as disposed BEFORE tearing anything down so that any
+	 * directory/clipboard signal emission already queued in the main loop
+	 * (and still carrying this col pointer as user_data) bails out instead
+	 * of touching freed widgets or list stores. The struct itself is kept
+	 * alive until an idle handler frees it, so the disposed flag stays
+	 * readable. */
+	col->disposed = TRUE;
 
 	column_view_column_clear (col);
 
@@ -353,9 +901,24 @@ column_view_column_free (NemoColumnViewColumn *col)
 		col->tree_view = NULL;
 	}
 
+	if (col->dwell_timeout_id > 0) {
+		g_source_remove (col->dwell_timeout_id);
+		col->dwell_timeout_id = 0;
+	}
+	g_clear_pointer (&col->dwell_path, gtk_tree_path_free);
+
 	if (col->column_widget != NULL) {
 		gtk_widget_destroy (col->column_widget);
 		col->column_widget = NULL;
+	}
+
+	if (col->drag_dest != NULL) {
+		/* Drop the back-pointer to this column so an in-progress drag
+		 * (which may keep the drag_dest alive) can no longer resolve a
+		 * freed column. */
+		g_object_set_data (G_OBJECT (col->drag_dest), "column-view-col", NULL);
+		g_object_unref (col->drag_dest);
+		col->drag_dest = NULL;
 	}
 
 	if (col->directory != NULL) {
@@ -392,7 +955,9 @@ column_view_column_free (NemoColumnViewColumn *col)
 		col->location = NULL;
 	}
 
-	g_free (col);
+	/* Defer the actual free so in-flight callbacks (queued in the same main
+	 * loop iteration) can still safely read the disposed flag. */
+	g_idle_add (column_view_column_free_idle, col);
 }
 
 static void
@@ -402,13 +967,15 @@ column_view_column_clear (NemoColumnViewColumn *col)
 	NemoFile *file;
 	gboolean valid;
 
-	if (col == NULL || col->list_store == NULL) return;
+	if (col == NULL || col->list_store == NULL || col->cleared) return;
+
+	col->cleared = TRUE;
 
 	valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (col->list_store), &iter);
 	while (valid) {
 		gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
 				    COLUMN_FILE, &file, -1);
-		if (file != NULL) {
+		if (file != NULL && NEMO_IS_FILE (file)) {
 			nemo_file_unref (file);
 		}
 		valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (col->list_store), &iter);
@@ -440,11 +1007,27 @@ column_view_column_add_file (NemoColumnViewColumn *col, NemoFile *file)
 
 	valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (col->list_store), &existing);
 	while (valid) {
+		GFile *existing_loc, *file_loc;
+
 		gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &existing,
 				    COLUMN_FILE, &existing_file, -1);
 		if (existing_file == file) {
 			return FALSE;
 		}
+
+		if (NEMO_IS_FILE (existing_file)) {
+			existing_loc = nemo_file_get_location (existing_file);
+			file_loc = nemo_file_get_location (file);
+			if (existing_loc != NULL && file_loc != NULL &&
+			    g_file_equal (existing_loc, file_loc)) {
+				g_object_unref (existing_loc);
+				g_object_unref (file_loc);
+				return FALSE;
+			}
+			g_clear_object (&existing_loc);
+			g_clear_object (&file_loc);
+		}
+
 		valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (col->list_store), &existing);
 	}
 
@@ -474,6 +1057,21 @@ column_view_column_add_file (NemoColumnViewColumn *col, NemoFile *file)
 	return TRUE;
 }
 
+static gboolean
+column_view_column_is_still_valid (NemoColumnViewColumn *col, NemoDirectory *directory)
+{
+	if (col == NULL || col->disposed || col->view == NULL ||
+	    col->list_store == NULL || col->directory == NULL) {
+		return FALSE;
+	}
+
+	if (directory != NULL && directory != col->directory) {
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
 static void
 column_view_column_files_added_cb (NemoDirectory *directory,
 				   GList *files,
@@ -481,6 +1079,10 @@ column_view_column_files_added_cb (NemoDirectory *directory,
 {
 	NemoColumnViewColumn *col = user_data;
 	GList *l;
+
+	if (!column_view_column_is_still_valid (col, directory)) {
+		return;
+	}
 
 	for (l = files; l != NULL; l = l->next) {
 		column_view_column_add_file (col, NEMO_FILE (l->data));
@@ -500,17 +1102,27 @@ column_view_column_files_changed_cb (NemoDirectory *directory,
 	gboolean valid;
 	NemoFile *existing_file;
 
+	if (!column_view_column_is_still_valid (col, directory)) {
+		return;
+	}
+
 	for (l = files; l != NULL; l = l->next) {
 		NemoFile *changed_file = NEMO_FILE (l->data);
+
+		if (!NEMO_IS_FILE (changed_file)) {
+			continue;
+		}
 
 		valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (col->list_store), &iter);
 		while (valid) {
 			gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
 					    COLUMN_FILE, &existing_file, -1);
-			if (existing_file == changed_file) {
-				if (nemo_file_is_gone (changed_file)) {
-					nemo_file_unref (changed_file);
+			if (existing_file == changed_file &&
+			    NEMO_IS_FILE (existing_file)) {
+				if (nemo_file_is_gone (changed_file) ||
+				    !nemo_directory_contains_file (col->directory, changed_file)) {
 					gtk_list_store_remove (col->list_store, &iter);
+					nemo_file_unref (existing_file);
 					column_view_invalidate_selection (col->view);
 				} else {
 					GdkPixbuf *icon;
@@ -546,7 +1158,7 @@ column_view_column_files_changed_cb (NemoDirectory *directory,
 static void
 column_view_column_update_empty_state (NemoColumnViewColumn *col)
 {
-	if (col == NULL || col->stack == NULL) {
+	if (col == NULL || col->disposed || col->stack == NULL) {
 		return;
 	}
 
@@ -562,6 +1174,11 @@ static void
 column_view_column_done_loading_cb (NemoDirectory *directory, gpointer user_data)
 {
 	NemoColumnViewColumn *col = user_data;
+
+	if (!column_view_column_is_still_valid (col, directory)) {
+		return;
+	}
+
 	col->loading = FALSE;
 	column_view_column_update_empty_state (col);
 }
@@ -572,6 +1189,8 @@ column_view_column_load_directory (NemoColumnViewColumn *col, GFile *location)
 	gboolean same_location;
 
 	if (col == NULL || location == NULL) return;
+
+	col->cleared = FALSE;
 
 	same_location = (col->location == location);
 
@@ -726,6 +1345,10 @@ column_view_rebuild_after_column (NemoColumnView *view, gint column_index)
 		if (view->priv->selection_column == col) {
 			view->priv->selection_column = NULL;
 		}
+		if (view->priv->press_col == col) {
+			view->priv->press_col = NULL;
+			g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
+		}
 		column_view_column_free (col);
 	}
 }
@@ -757,6 +1380,56 @@ column_view_get_column_at_index (NemoColumnView *view, gint index)
 	return g_list_nth_data (view->priv->columns, index);
 }
 
+static NemoColumnViewColumn *
+column_view_get_column_for_tree_view (NemoColumnView *view, GtkWidget *tree_view)
+{
+	GList *l;
+
+	for (l = view->priv->columns; l != NULL; l = l->next) {
+		NemoColumnViewColumn *col = l->data;
+		if (col->tree_view == tree_view) {
+			return col;
+		}
+	}
+
+	return NULL;
+}
+
+static void
+column_view_open_directory (NemoColumnView *view, NemoColumnViewColumn *col, NemoFile *file)
+{
+	gint column_index = -1;
+	GList *l;
+	gint i;
+	GFile *dir_location;
+	NemoColumnViewColumn *new_col;
+
+	if (col == NULL || file == NULL) return;
+
+	for (i = 0, l = view->priv->columns; l != NULL; l = l->next, i++) {
+		if (l->data == col) {
+			column_index = i;
+			break;
+		}
+	}
+
+	if (column_index < 0) return;
+
+	dir_location = nemo_file_get_location (file);
+	column_view_rebuild_after_column (view, column_index);
+
+	new_col = column_view_append_column (view);
+	column_view_column_load_directory (new_col, dir_location);
+	gtk_widget_show_all (new_col->column_widget);
+	gtk_widget_queue_resize (view->priv->columns_container);
+	column_view_update_address_bar (view, dir_location);
+
+	column_view_clear_other_columns_selection (view, col);
+	view->priv->selection_column = col;
+
+	g_object_unref (dir_location);
+}
+
 static void
 column_view_on_row_activated (GtkTreeView *tree_view,
 			      GtkTreePath *path,
@@ -767,6 +1440,7 @@ column_view_on_row_activated (GtkTreeView *tree_view,
 	GtkTreeModel *model;
 	GtkTreeIter iter;
 	NemoFile *file;
+	NemoColumnViewColumn *col;
 
 	model = gtk_tree_view_get_model (tree_view);
 	if (!gtk_tree_model_get_iter (model, &iter, path)) return;
@@ -775,34 +1449,8 @@ column_view_on_row_activated (GtkTreeView *tree_view,
 
 	if (file != NULL) {
 		if (nemo_file_is_directory (file)) {
-			gint column_index = -1;
-			NemoColumnViewColumn *col = NULL;
-			GList *l;
-			gint i;
-
-			for (i = 0, l = view->priv->columns; l != NULL; l = l->next, i++) {
-				NemoColumnViewColumn *c = l->data;
-				if (c->tree_view == GTK_WIDGET (tree_view)) {
-					column_index = i;
-					col = c;
-					break;
-				}
-			}
-
-			if (column_index >= 0) {
-				GFile *dir_location = nemo_file_get_location (file);
-				column_view_rebuild_after_column (view, column_index);
-				NemoColumnViewColumn *new_col = column_view_append_column (view);
-				column_view_column_load_directory (new_col, dir_location);
-				gtk_widget_show_all (new_col->column_widget);
-				gtk_widget_queue_resize (view->priv->columns_container);
-				column_view_update_address_bar (view, dir_location);
-				if (col != NULL) {
-					column_view_clear_other_columns_selection (view, col);
-					view->priv->selection_column = col;
-				}
-				g_object_unref (dir_location);
-			}
+			col = column_view_get_column_for_tree_view (view, GTK_WIDGET (tree_view));
+			column_view_open_directory (view, col, file);
 		} else {
 			nemo_file_ref (file);
 			nemo_view_activate_file (NEMO_VIEW (view), file, 0);
@@ -941,118 +1589,83 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 {
 	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
 	GtkTreeView *tree_view = GTK_TREE_VIEW (widget);
-	NemoColumnViewColumn *col = NULL;
-	GList *l;
+	NemoColumnViewColumn *col;
+	GtkTreePath *path = NULL;
+	gboolean on_row;
 
-	for (l = view->priv->columns; l != NULL; l = l->next) {
-		NemoColumnViewColumn *c = l->data;
-		if (c->tree_view == GTK_WIDGET (tree_view)) {
-			col = c;
-			break;
-		}
+	col = column_view_get_column_for_tree_view (view, GTK_WIDGET (tree_view));
+
+	if (event->type == GDK_2BUTTON_PRESS || event->type == GDK_3BUTTON_PRESS) {
+		return FALSE;
 	}
 
-	if (event->type == GDK_BUTTON_PRESS && event->button == 1) {
-		GtkTreePath *path;
+	if (event->type != GDK_BUTTON_PRESS) {
+		return FALSE;
+	}
 
-		if (gtk_tree_view_get_path_at_pos (tree_view,
-						   (gint) event->x,
-						   (gint) event->y,
-						   &path, NULL, NULL, NULL)) {
-			GtkTreeModel *model;
-			GtkTreeIter iter;
-			NemoFile *file;
-			gboolean is_dir;
+	if (event->button == 1) {
+		GtkTreeModel *model;
+		GtkTreeIter iter;
+		NemoFile *file = NULL;
+		GList *l;
+		GtkTreeSelection *sel;
 
-			model = gtk_tree_view_get_model (tree_view);
+		view->priv->press_button = 1;
+		view->priv->press_x = (gint) event->x;
+		view->priv->press_y = (gint) event->y;
+		view->priv->press_col = col;
+		view->priv->ignore_button_release = FALSE;
 
-			if (gtk_tree_model_get_iter (model, &iter, path)) {
-				gtk_tree_model_get (model, &iter,
-						    COLUMN_FILE, &file,
-						    COLUMN_IS_DIRECTORY, &is_dir,
-						    -1);
+		g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
 
+		on_row = gtk_tree_view_get_path_at_pos (tree_view,
+							(gint) event->x,
+							(gint) event->y,
+							&path, NULL, NULL, NULL);
+
+		if (on_row) {
+			sel = gtk_tree_view_get_selection (tree_view);
+			view->priv->row_selected_on_button_down =
+				gtk_tree_selection_path_is_selected (sel, path);
+			view->priv->press_path = gtk_tree_path_copy (path);
+
+			if (col != NULL) {
 				/* Click-to-rename: second slow click on the file name text. */
+				model = gtk_tree_view_get_model (GTK_TREE_VIEW (col->tree_view));
+
+				if (gtk_tree_model_get_iter (model, &iter, path)) {
+					gtk_tree_model_get (model, &iter, COLUMN_FILE, &file, -1);
+				}
+
 				if (file != NULL &&
 				    nemo_file_can_rename (file) &&
 				    column_view_handle_slow_two_click (view, col, tree_view, path, event)) {
 					NEMO_VIEW_CLASS (G_OBJECT_GET_CLASS (NEMO_VIEW (view)))
 						->start_renaming_file (NEMO_VIEW (view), file, TRUE);
+					view->priv->ignore_button_release = TRUE;
 					gtk_tree_path_free (path);
 					return TRUE;
 				}
 
-				if (is_dir && file != NULL) {
-					gint column_index = -1;
-					GList *cl;
-					gint i;
+				column_view_clear_other_columns_selection (view, col);
 
-					for (i = 0, cl = view->priv->columns; cl != NULL; cl = cl->next, i++) {
-						NemoColumnViewColumn *c = cl->data;
-						if (c->tree_view == GTK_WIDGET (tree_view)) {
-							column_index = i;
-							col = c;
-							break;
-						}
+				/* Pressing an already-selected row without a modifier must
+				 * not let the default handler collapse the selection, or a
+				 * subsequent drag would only carry this single row. Stop the
+				 * event so the automatic drag source keeps the whole
+				 * selection intact for the drag. */
+				if (view->priv->row_selected_on_button_down &&
+				    !(event->state & (GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_MOD1_MASK))) {
+					gtk_widget_grab_focus (widget);
+					if (file != NULL) {
+						nemo_file_unref (file);
 					}
-
-					if (column_index >= 0) {
-						GFile *dir_location = nemo_file_get_location (file);
-
-						column_view_rebuild_after_column (view, column_index);
-
-						NemoColumnViewColumn *new_col = column_view_append_column (view);
-						column_view_column_load_directory (new_col, dir_location);
-
-						gtk_widget_show_all (new_col->column_widget);
-
-						column_view_update_address_bar (view, dir_location);
-
-						g_object_unref (dir_location);
-
-						if (col != NULL) {
-							GtkTreeSelection *sel;
-
-							column_view_clear_other_columns_selection (view, col);
-							view->priv->selection_column = col;
-
-							sel = gtk_tree_view_get_selection (tree_view);
-							gtk_tree_selection_unselect_all (sel);
-							gtk_tree_selection_select_path (sel, path);
-						}
-					}
-
-					column_view_update_selection (view);
-					column_view_notify_selection_changed (view);
-
 					gtk_tree_path_free (path);
-					return TRUE;
-				}
-
-				if (col != NULL) {
-					gint column_index = -1;
-					GList *cl;
-					gint i;
-
-					for (i = 0, cl = view->priv->columns; cl != NULL; cl = cl->next, i++) {
-						NemoColumnViewColumn *c = cl->data;
-						if (c->tree_view == GTK_WIDGET (tree_view)) {
-							column_index = i;
-							break;
-						}
-					}
-
-					if (column_index >= 0) {
-						column_view_rebuild_after_column (view, column_index);
-					}
-
-					column_view_clear_other_columns_selection (view, col);
-					view->priv->selection_column = col;
+					return GDK_EVENT_STOP;
 				}
 			}
-
-			gtk_tree_path_free (path);
 		} else {
+			/* Blank press: clear all selections. */
 			for (l = view->priv->columns; l != NULL; l = l->next) {
 				NemoColumnViewColumn *c = l->data;
 				gtk_tree_selection_unselect_all (
@@ -1061,10 +1674,14 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 			view->priv->selection_column = NULL;
 		}
 
+		if (path != NULL) {
+			gtk_tree_path_free (path);
+		}
+
 		return FALSE;
 	}
 
-	if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
+	if (event->button == 3) {
 		GtkTreePath *right_path;
 
 		if (col != NULL) {
@@ -1094,6 +1711,92 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 		column_view_do_popup_menu (view, tree_view, event);
 		return TRUE;
 	}
+
+	return FALSE;
+}
+
+static gboolean
+column_view_on_button_release (GtkWidget *widget, GdkEventButton *event, gpointer user_data)
+{
+	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
+	NemoColumnViewColumn *col;
+
+	(void) widget;
+
+	if (event->type != GDK_BUTTON_RELEASE || event->button != 1) {
+		return FALSE;
+	}
+
+	col = view->priv->press_col;
+	if (col == NULL || !g_list_find (view->priv->columns, col)) {
+		goto reset;
+	}
+
+	if (view->priv->drag_started) {
+		goto reset;
+	}
+
+	if (view->priv->ignore_button_release) {
+		goto reset;
+	}
+
+	if (view->priv->press_path != NULL) {
+		GtkTreeModel *model;
+		GtkTreeIter iter;
+		NemoFile *file = NULL;
+
+model = gtk_tree_view_get_model (GTK_TREE_VIEW (col->tree_view));
+
+		if (gtk_tree_model_get_iter (model, &iter, view->priv->press_path)) {
+			gtk_tree_model_get (model, &iter, COLUMN_FILE, &file, -1);
+		}
+
+		if (file != NULL && nemo_file_is_directory (file)) {
+			GtkTreeSelection *sel;
+
+			column_view_open_directory (view, col, file);
+
+			/* Keep the clicked directory selected in its column. */
+			sel = gtk_tree_view_get_selection (GTK_TREE_VIEW (col->tree_view));
+			gtk_tree_selection_unselect_all (sel);
+			gtk_tree_selection_select_path (sel, view->priv->press_path);
+
+			column_view_update_selection (view);
+			column_view_notify_selection_changed (view);
+		} else if (file != NULL) {
+			gint column_index = -1;
+			GList *l;
+			gint i;
+
+			for (i = 0, l = view->priv->columns; l != NULL; l = l->next, i++) {
+				if (l->data == col) {
+					column_index = i;
+					break;
+				}
+			}
+
+			if (column_index >= 0) {
+				column_view_rebuild_after_column (view, column_index);
+			}
+
+			column_view_clear_other_columns_selection (view, col);
+			view->priv->selection_column = col;
+
+			column_view_update_selection (view);
+		}
+
+		if (file != NULL) {
+			nemo_file_unref (file);
+		}
+	} else {
+		/* Pressed on blank space. */
+		view->priv->selection_column = NULL;
+	}
+
+reset:
+	view->priv->press_col = NULL;
+	view->priv->press_button = 0;
+	g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
 
 	return FALSE;
 }
@@ -1181,6 +1884,11 @@ column_view_file_changed (NemoView *nemo_view, NemoFile *file, NemoDirectory *di
 	NemoColumnView *view = NEMO_COLUMN_VIEW (nemo_view);
 	GList *l;
 
+	if (file == NULL || !NEMO_IS_FILE (file)) {
+		return;
+	}
+
+
 	for (l = view->priv->columns; l != NULL; l = l->next) {
 		NemoColumnViewColumn *col = l->data;
 		GtkTreeIter iter;
@@ -1245,7 +1953,8 @@ column_view_is_read_only (NemoView *nemo_view)
 	last_node = g_list_last (view->priv->columns);
 	if (last_node != NULL) {
 		NemoColumnViewColumn *col = last_node->data;
-		if (col->directory_file != NULL) {
+		if (col->directory_file != NULL &&
+		    NEMO_IS_FILE (col->directory_file)) {
 			NemoFile *file = col->directory_file;
 
 			return !nemo_file_can_write (file) || nemo_file_is_in_admin (file);
@@ -1268,6 +1977,10 @@ column_view_refresh_cut_state (NemoColumnView *view)
 		GtkTreeIter iter;
 		gboolean valid;
 
+		if (col->disposed) {
+			continue;
+		}
+
 		valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (col->list_store), &iter);
 		while (valid) {
 			NemoFile *file;
@@ -1277,7 +1990,13 @@ column_view_refresh_cut_state (NemoColumnView *view)
 			gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
 					    COLUMN_FILE, &file, -1);
 
-			if (file != NULL && info != NULL && info->cut) {
+			/* Skip rows whose file is gone or no longer valid: the
+			 * NemoFile may be freed at any time, and refresh must
+			 * never touch it. */
+			if (file == NULL || nemo_file_is_gone (file)) {
+				opacity = 1.0;
+				cut = FALSE;
+			} else if (info != NULL && info->cut) {
 				GList *fl;
 
 				for (fl = info->files; fl != NULL; fl = fl->next) {
@@ -1340,6 +2059,8 @@ column_view_clear (NemoView *nemo_view)
 	NemoColumnView *view = NEMO_COLUMN_VIEW (nemo_view);
 
 	view->priv->selection_column = NULL;
+	view->priv->press_col = NULL;
+	g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
 	column_view_invalidate_selection (view);
 
 	column_view_preview_clear (view);
@@ -1382,7 +2103,7 @@ column_view_get_selection (NemoView *nemo_view)
 					     &iter, (GtkTreePath *) r->data)) {
 			gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
 					    COLUMN_FILE, &file, -1);
-			if (file != NULL) {
+			if (file != NULL && NEMO_IS_FILE (file)) {
 				selection = g_list_prepend (selection, nemo_file_ref (file));
 			}
 		}
@@ -1912,6 +2633,11 @@ column_view_set_selection (NemoView *nemo_view, GList *selection)
 	for (l = selection; l != NULL; l = l->next) {
 		NemoFile *file = NEMO_FILE (l->data);
 		GtkTreeIter iter;
+
+		if (file == NULL || !NEMO_IS_FILE (file)) {
+			continue;
+		}
+
 		gboolean valid;
 		NemoFile *existing;
 
@@ -2665,6 +3391,9 @@ column_view_finalize (GObject *object)
 
 	for (l = view->priv->columns; l != NULL; l = l->next) {
 		NemoColumnViewColumn *col = l->data;
+
+		col->disposed = TRUE;
+
 		if (col->directory != NULL) {
 			nemo_directory_cancel_callback (col->directory,
 							(NemoDirectoryCallback) column_view_column_files_added_cb,
@@ -2693,7 +3422,16 @@ column_view_finalize (GObject *object)
 		if (col->location != NULL) {
 			g_object_unref (col->location);
 		}
-		g_free (col);
+		if (col->dwell_timeout_id > 0) {
+			g_source_remove (col->dwell_timeout_id);
+			col->dwell_timeout_id = 0;
+		}
+		g_clear_pointer (&col->dwell_path, gtk_tree_path_free);
+		if (col->drag_dest != NULL) {
+			g_object_unref (col->drag_dest);
+			col->drag_dest = NULL;
+		}
+		g_idle_add (column_view_column_free_idle, col);
 	}
 	g_list_free (view->priv->columns);
 	view->priv->columns = NULL;
@@ -2706,6 +3444,7 @@ column_view_finalize (GObject *object)
 	column_view_preview_free_resources (view);
 
 	g_clear_pointer (&view->priv->last_click_path, gtk_tree_path_free);
+	g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
 
 	G_OBJECT_CLASS (parent_class)->finalize (object);
 }

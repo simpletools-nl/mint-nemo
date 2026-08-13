@@ -95,6 +95,9 @@ struct _NemoTreeViewDragDestClass {
 GType                     nemo_tree_view_drag_dest_get_type (void);
 NemoTreeViewDragDest *nemo_tree_view_drag_dest_new      (GtkTreeView *tree_view, gboolean strict_drop);
 
+void nemo_tree_view_drag_dest_set_always_ask_icon_list   (NemoTreeViewDragDest *dest,
+                                                          gboolean              always_ask);
+
 G_END_DECLS
 
 #endif

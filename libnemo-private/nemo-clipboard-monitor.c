@@ -100,10 +100,24 @@ nemo_clipboard_info_new (GList *files,
                              gboolean cut)
 {
 	NemoClipboardInfo *info;
+	GList *l, *clean;
 
 	info = g_new0 (NemoClipboardInfo, 1);
-	info->files = nemo_file_list_copy (files);
 	info->cut = cut;
+
+	/* Skip files that are already gone: a moved/deleted file still has a
+	 * ref here (the clipboard copy), but its info has been cleared and the
+	 * object may be freed at any time. The clipboard callbacks must never
+	 * dereference such a file (crash: nemo_file_get_local_uri on freed
+	 * NemoFile in nemo_get_clipboard_callback). */
+	clean = NULL;
+	for (l = files; l != NULL; l = l->next) {
+		NemoFile *file = NEMO_FILE (l->data);
+		if (file != NULL && !nemo_file_is_gone (file)) {
+			clean = g_list_prepend (clean, nemo_file_ref (file));
+		}
+	}
+	info->files = g_list_reverse (clean);
 
 	return info;
 }
@@ -233,6 +247,13 @@ convert_file_list_to_string (NemoClipboardInfo *info,
 	}
 
         for (i = 0, l = info->files; l != NULL; l = l->next, i++) {
+		/* Never deref a gone file: its info is cleared and the object may
+		 * have been freed already. Skip such rows in the generated
+		 * clipboard text. */
+		if (nemo_file_is_gone (NEMO_FILE (l->data))) {
+			continue;
+		}
+
 		uri = nemo_file_get_local_uri (l->data);
 
 		if (format_for_text) {
@@ -278,6 +299,10 @@ nemo_get_clipboard_callback (GtkClipboard     *clipboard,
 	clipboard_info =
 		nemo_clipboard_monitor_get_clipboard_info (nemo_clipboard_monitor_get ());
 
+	if (clipboard_info == NULL) {
+		return;
+	}
+
 	target = gtk_selection_data_get_target (selection_data);
 
         if (gtk_targets_include_uri (&target, 1)) {
@@ -285,6 +310,10 @@ nemo_get_clipboard_callback (GtkClipboard     *clipboard,
 		i = 0;
 
 		for (l = clipboard_info->files; l != NULL; l = l->next) {
+			/* Skip gone files: never deref a freed NemoFile. */
+			if (nemo_file_is_gone (NEMO_FILE (l->data))) {
+				continue;
+			}
 			uris[i] = nemo_file_get_local_uri (l->data);
 			i++;
 		}
