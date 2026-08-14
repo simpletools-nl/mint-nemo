@@ -1,3 +1,14 @@
+nemo (1.0.28) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix double-click on a file not opening it. The view relied on GTK's
+    built-in "row-activated" signal, which is suppressed when the first
+    press of an already-selected row is stopped (to preserve a
+    multi-selection for dragging). The column view now performs its own
+    double-click detection and opens the file/directory directly,
+    independent of selection state. Single-click on a file no longer
+    destroys the columns to its right.
+
 nemo (1.0.27) unstable; urgency=medium
 
   [ Column View ]
