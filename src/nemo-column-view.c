@@ -125,6 +125,9 @@ struct _NemoColumnViewPriv {
 	gboolean ignore_button_release;
 	gboolean pending_drag;
 	gboolean collapse_on_release;
+
+	gint click_policy;
+	gint64 last_double_click_time;
 };
 
 G_DEFINE_TYPE (NemoColumnView, nemo_column_view, NEMO_TYPE_VIEW);
@@ -1570,6 +1573,83 @@ column_view_click_to_rename_mode_changed (NemoView *nemo_view)
 }
 
 static gboolean
+column_view_button_event_modifies_selection (GdkEventButton *event)
+{
+	return (event->state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK)) != 0;
+}
+
+static gboolean
+column_view_clicked_within_double_click_interval (NemoColumnView *view)
+{
+	gint64 current_time;
+	gint interval;
+
+	g_object_get (G_OBJECT (gtk_widget_get_settings (GTK_WIDGET (view))),
+		      "gtk-double-click-time", &interval,
+		      NULL);
+
+	current_time = g_get_monotonic_time ();
+	if (current_time - view->priv->last_double_click_time < interval * 1000) {
+		view->priv->last_double_click_time = 0;
+		return TRUE;
+	}
+
+	view->priv->last_double_click_time = current_time;
+	return FALSE;
+}
+
+/* Detect and handle a double click ourselves, independent of GTK's
+ * built-in "row-activated" emission. The default handler is suppressed
+ * when we stop the first press of an already-selected row (to keep a
+ * multi-selection intact for dragging), so we can't rely on GTK to
+ * activate the row for us in that common case. */
+static gboolean
+column_view_handle_double_click (NemoColumnView *view,
+				 NemoColumnViewColumn *col,
+				 GtkTreePath *path,
+				 GdkEventButton *event,
+				 NemoFile *file)
+{
+	gboolean is_double;
+
+	if (view->priv->click_policy == NEMO_CLICK_POLICY_SINGLE) {
+		return FALSE;
+	}
+
+	if (event->button == GDK_BUTTON_SECONDARY) {
+		return FALSE;
+	}
+
+	/* Track the last clicked path so a double click only counts when
+	 * both presses land on the same row, and always refresh the
+	 * timestamp so rapid clicks on different rows don't confuse it. */
+	is_double = FALSE;
+	if (event->type == GDK_BUTTON_PRESS || event->type == GDK_2BUTTON_PRESS) {
+		gboolean same_path;
+
+		same_path = (view->priv->last_click_path != NULL &&
+			     gtk_tree_path_compare (view->priv->last_click_path, path) == 0);
+		is_double = same_path && column_view_clicked_within_double_click_interval (view);
+
+		g_clear_pointer (&view->priv->last_click_path, gtk_tree_path_free);
+		view->priv->last_click_path = gtk_tree_path_copy (path);
+	}
+
+	if (is_double && !column_view_button_event_modifies_selection (event)) {
+		if (nemo_file_is_directory (file)) {
+			column_view_open_directory (view, col, file);
+		} else {
+			nemo_file_ref (file);
+			nemo_view_activate_file (NEMO_VIEW (view), file, 0);
+			nemo_file_unref (file);
+		}
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+static gboolean
 column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer user_data)
 {
 	NemoColumnView *view = NEMO_COLUMN_VIEW (user_data);
@@ -1580,11 +1660,11 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 
 	col = column_view_get_column_for_tree_view (view, GTK_WIDGET (tree_view));
 
-	if (event->type == GDK_2BUTTON_PRESS || event->type == GDK_3BUTTON_PRESS) {
+	if (event->type == GDK_3BUTTON_PRESS) {
 		return FALSE;
 	}
 
-	if (event->type != GDK_BUTTON_PRESS) {
+	if (event->type != GDK_BUTTON_PRESS && event->type != GDK_2BUTTON_PRESS) {
 		return FALSE;
 	}
 
@@ -1635,6 +1715,17 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 				}
 
 				column_view_clear_other_columns_selection (view, col);
+
+			/* Our own double-click handling: works regardless of
+			 * selection state, since the default "row-activated"
+			 * emission is skipped when we stop the first press of an
+			 * already-selected row below. */
+			if (file != NULL &&
+			    column_view_handle_double_click (view, col, path, event, file)) {
+				view->priv->ignore_button_release = TRUE;
+				gtk_tree_path_free (path);
+				return GDK_EVENT_STOP;
+			}
 
 			/* Already-selected row + no modifier: do not let the
 			 * default handler collapse the selection immediately, so a
@@ -1755,21 +1846,6 @@ model = gtk_tree_view_get_model (GTK_TREE_VIEW (col->tree_view));
 			column_view_update_selection (view);
 			column_view_notify_selection_changed (view);
 		} else if (file != NULL) {
-			gint column_index = -1;
-			GList *l;
-			gint i;
-
-			for (i = 0, l = view->priv->columns; l != NULL; l = l->next, i++) {
-				if (l->data == col) {
-					column_index = i;
-					break;
-				}
-			}
-
-			if (column_index >= 0) {
-				column_view_rebuild_after_column (view, column_index);
-			}
-
 			column_view_clear_other_columns_selection (view, col);
 			view->priv->selection_column = col;
 
@@ -2968,6 +3044,10 @@ column_view_compare_files (NemoView *nemo_view, NemoFile *a, NemoFile *b)
 static void
 column_view_click_policy_changed (NemoView *nemo_view)
 {
+	NemoColumnView *view = NEMO_COLUMN_VIEW (nemo_view);
+
+	view->priv->click_policy = g_settings_get_enum (nemo_preferences,
+							NEMO_PREFERENCES_CLICK_POLICY);
 }
 
 static void
@@ -3367,6 +3447,7 @@ nemo_column_view_init (NemoColumnView *view)
 							    NEMO_PREFERENCES_DEFAULT_SORT_IN_REVERSE_ORDER);
 
 	column_view_click_to_rename_mode_changed (NEMO_VIEW (view));
+	column_view_click_policy_changed (NEMO_VIEW (view));
 
 	g_signal_connect (nemo_preferences,
 			  "changed::" NEMO_PREFERENCES_SHOW_HIDDEN_FILES,
