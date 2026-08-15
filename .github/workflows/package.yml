@@ -212,9 +212,16 @@ jobs:
           path: /tmp/nemo_${{ steps.version.outputs.version }}_amd64.deb
           if-no-files-found: error
 
+      - name: Remove existing release for this tag (if any)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete v${{ steps.version.outputs.version }} --repo ${{ github.repository }} -y || true
+
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: ncipollo/release-action@v1
         with:
           artifacts: /tmp/nemo_${{ steps.version.outputs.version }}_amd64.deb
           token: ${{ secrets.GITHUB_TOKEN }}
+          allowUpdates: true
