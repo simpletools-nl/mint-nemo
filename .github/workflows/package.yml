@@ -86,6 +86,32 @@ jobs:
       - name: Install to staging directory
         run: DESTDIR=/tmp/staging meson install -C build
 
+      - name: Build and bundle nemo-fileroller (Compress/Extract context menu)
+        run: |
+          apt-get install -y --no-install-recommends git
+          # Our nemo fork uses the legacy libnemo-extension ABI
+          # (get_file_items/get_background_items), so we bundle the
+          # compatible nemo-fileroller 2.8.x and compile it against our
+          # staged libnemo-extension headers/libs (the host may ship a
+          # newer, incompatible nemo).
+          git clone --depth 1 --branch 2.8.x https://github.com/linuxmint/nemo-extensions /tmp/nemo-extensions
+          cd /tmp/nemo-extensions/nemo-fileroller/src
+          cat > config.h <<'EOF'
+          #ifndef CONFIG_H
+          #define CONFIG_H
+          #define GETTEXT_PACKAGE "nemo-fileroller"
+          #define GNOMELOCALEDIR "/usr/share/locale"
+          #endif
+          EOF
+          gcc -shared -fPIC -o libnemo-fileroller.so \
+            -I. -I/tmp/staging/usr/include/nemo \
+            $(pkg-config --cflags glib-2.0 gio-2.0 gtk+-3.0 pango) \
+            nemo-fileroller.c fileroller-module.c \
+            -L/tmp/staging/usr/lib/x86_64-linux-gnu -lnemo-extension
+          mkdir -p /tmp/staging/usr/lib/x86_64-linux-gnu/nemo/extensions-3.0
+          cp libnemo-fileroller.so /tmp/staging/usr/lib/x86_64-linux-gnu/nemo/extensions-3.0/
+          find /tmp/staging -name 'libnemo-fileroller.so'
+
       - name: Compute shared library dependencies
         id: shlibs
         shell: bash
@@ -107,18 +133,19 @@ jobs:
           EOF
           cd /tmp/pkgbuild
           set -o pipefail
-          LIBNEMO=$(ls /tmp/staging/usr/lib/x86_64-linux-gnu/libnemo-extension.so.*.*.* | head -1)
-          DEPS=$(dpkg-shlibdeps -O \
-            -l/tmp/staging/usr/lib/x86_64-linux-gnu \
-            -l/tmp/staging/usr/lib \
-            /tmp/staging/usr/bin/nemo \
-            /tmp/staging/usr/bin/nemo-desktop \
-            /tmp/staging/usr/bin/nemo-connect-server \
-            /tmp/staging/usr/bin/nemo-open-with \
-            /tmp/staging/usr/bin/nemo-autorun-software \
-            /tmp/staging/usr/libexec/nemo-extensions-list \
-            "$LIBNEMO" 2>/dev/null \
-            | sed 's/^shlibs:Depends=//')
+           LIBNEMO=$(ls /tmp/staging/usr/lib/x86_64-linux-gnu/libnemo-extension.so.*.*.* | head -1)
+           FR=$(ls /tmp/staging/usr/lib/x86_64-linux-gnu/nemo/extensions-3.0/libnemo-fileroller.so 2>/dev/null | head -1)
+           DEPS=$(dpkg-shlibdeps -O \
+             -l/tmp/staging/usr/lib/x86_64-linux-gnu \
+             -l/tmp/staging/usr/lib \
+             /tmp/staging/usr/bin/nemo \
+             /tmp/staging/usr/bin/nemo-desktop \
+             /tmp/staging/usr/bin/nemo-connect-server \
+             /tmp/staging/usr/bin/nemo-open-with \
+             /tmp/staging/usr/bin/nemo-autorun-software \
+             /tmp/staging/usr/libexec/nemo-extensions-list \
+             "$LIBNEMO" "${FR:-}" 2>/dev/null \
+             | sed 's/^shlibs:Depends=//')
           DEPS=$(echo "$DEPS" | sed 's/libnemo-extension1 ([^)]*), *//g; s/libnemo-extension1 ([^)]*)//')
           echo "deps=$DEPS" >> "$GITHUB_OUTPUT"
 
@@ -133,10 +160,10 @@ jobs:
           Architecture: amd64
           Maintainer: Ulas <ulasalkan@gmail.com>
           Installed-Size: $(du -sk /tmp/staging/usr | cut -f1)
-          Depends: ${{ steps.shlibs.outputs.deps }}, cinnamon-desktop-data (>= 4.8.0), cinnamon-l10n, desktop-file-utils (>= 0.7), gsettings-desktop-schemas, gvfs (>= 1.3.2), libglib2.0-data, shared-mime-info (>= 0.50), poppler-utils, exif, id3, catdoc, untex, html2text, python3, python3-xlrd, xapp-symbolic-icons (>= 1.0.7)
-          Replaces: nemo-data, libnemo-extension1, gir1.2-nemo-3.0, libnemo-extension-dev
-          Provides: nemo-data, libnemo-extension1, gir1.2-nemo-3.0, libnemo-extension-dev
-          Conflicts: nemo-desktop
+          Depends: ${{ steps.shlibs.outputs.deps }}, cinnamon-desktop-data (>= 4.8.0), cinnamon-l10n, desktop-file-utils (>= 0.7), gsettings-desktop-schemas, gvfs (>= 1.3.2), libglib2.0-data, shared-mime-info (>= 0.50), poppler-utils, exif, id3, catdoc, untex, html2text, python3, python3-xlrd, xapp-symbolic-icons (>= 1.0.7), file-roller
+          Replaces: nemo-data, libnemo-extension1, gir1.2-nemo-3.0, libnemo-extension-dev, nemo-fileroller
+          Provides: nemo-data, libnemo-extension1, gir1.2-nemo-3.0, libnemo-extension-dev, nemo-fileroller
+          Conflicts: nemo-desktop, nemo-fileroller
           Homepage: https://github.com/simpletools-nl/mint-nemo
           Description: file manager and graphical shell for Cinnamon
            Nemo is the official file manager for the Cinnamon desktop. It allows
