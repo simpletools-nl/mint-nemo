@@ -225,3 +225,27 @@ jobs:
           artifacts: /tmp/nemo_${{ steps.version.outputs.version }}_amd64.deb
           token: ${{ secrets.GITHUB_TOKEN }}
           allowUpdates: true
+          body: |
+            ## Nemo ${{ steps.version.outputs.version }}
+
+            Custom Nemo build that adds a macOS Finder-style **Column View (Miller columns)**
+            and bundles the **nemo-fileroller** extension so the **Compress… / Extract Here**
+            context menu entries work out of the box.
+
+            ### Highlights
+            - **Column View**: a new view mode (toolbar button "Columns", view menu, and the
+              `column-view` folder view option) that navigates folders in cascading columns.
+            - **Compress / Extract**: the `nemo-fileroller` extension is compiled against this
+              build's `libnemo-extension` ABI and embedded in the package, so right-clicking a
+              file or folder shows "Compress…" and archives show "Extract Here". `file-roller`
+              is pulled in automatically as a dependency.
+            - Right-click context menus, drag & drop between columns, and "Open in Terminal"
+              from deep directories are supported in Column View.
+
+            ### Installation
+            ```bash
+            sudo dpkg -i nemo_${{ steps.version.outputs.version }}_amd64.deb
+            sudo apt-get install -f
+            ```
+            Then restart Nemo (`nemo -q`) or log out/in for the new view and context-menu
+            entries to take effect.
