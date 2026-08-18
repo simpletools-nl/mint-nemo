@@ -1926,7 +1926,24 @@ model = gtk_tree_view_get_model (GTK_TREE_VIEW (col->tree_view));
 			column_view_update_selection (view);
 			column_view_notify_selection_changed (view);
 		} else if (file != NULL) {
-			column_view_clear_columns_right_of (view, col);
+			gint column_index = -1;
+			GList *l;
+			gint i;
+
+			/* Navigating to a file that lives in an ancestor column
+			 * invalidates the deeper drill-down columns to its right:
+			 * they no longer belong to the current path, so remove them
+			 * (like column_view_open_directory does for directories) and
+			 * let the preview appear right after the clicked column. */
+			for (i = 0, l = view->priv->columns; l != NULL; l = l->next, i++) {
+				if (l->data == col) {
+					column_index = i;
+					break;
+				}
+			}
+			if (column_index >= 0) {
+				column_view_rebuild_after_column (view, column_index);
+			}
 			view->priv->selection_column = col;
 
 			column_view_update_selection (view);

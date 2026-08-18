@@ -8,6 +8,10 @@ nemo (1.0.31) unstable; urgency=medium
     folder is the only column at load time; the breadcrumb (ancestor folders
     staying highlighted) is still built progressively as you click through
     subfolders, exactly like the other Nemo views.
+  * Fix preview placement when clicking a file that lives in an ancestor
+    column: remove the stale deeper drill-down columns to the right so the
+    preview panel appears right after the clicked column instead of after
+    the last drilled folder.
 
 nemo (1.0.30) unstable; urgency=medium
 
