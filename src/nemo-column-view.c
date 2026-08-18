@@ -3422,10 +3422,23 @@ column_view_hidden_files_changed_cb (GSettings *settings, gchar *key, gpointer u
 
 	for (l = view->priv->columns; l != NULL; l = l->next) {
 		NemoColumnViewColumn *col = l->data;
+		NemoFile *saved_selection = NULL;
+
 		if (col->location != NULL) {
+			/* Preserve the breadcrumb selection (the folder that was
+			 * drilled into) across the reload: column_view_column_clear()
+			 * drops col->selection_file, so re-apply it afterwards. */
+			if (col->selection_file != NULL) {
+				saved_selection = nemo_file_ref (col->selection_file);
+			}
 			GFile *loc = g_object_ref (col->location);
 			column_view_column_load_directory (col, loc);
 			g_object_unref (loc);
+
+			if (saved_selection != NULL) {
+				col->selection_file = saved_selection;
+				column_view_select_file_in_column (col, saved_selection);
+			}
 		}
 	}
 }
@@ -3536,6 +3549,14 @@ nemo_column_view_init (NemoColumnView *view)
 	view->priv->selection_column = NULL;
 	view->priv->show_hidden_files = g_settings_get_boolean (nemo_preferences,
 								NEMO_PREFERENCES_SHOW_HIDDEN_FILES);
+
+	/* The column view manages one NemoDirectory per column and reloads them
+	 * itself when the hidden-files preference changes (see
+	 * column_view_hidden_files_changed_cb). Tell the base NemoView to ignore
+	 * the preference so it does not also call load_directory()/begin_loading,
+	 * which would wipe the whole multi-column navigation and can crash while
+	 * iterating columns that are being freed. */
+	nemo_view_ignore_hidden_file_preferences (NEMO_VIEW (view));
 
 	{
 		char *sort_order;

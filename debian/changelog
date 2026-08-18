@@ -1,3 +1,14 @@
+nemo (1.0.32) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix crash when toggling "Show Hidden Files" from the background context
+    menu (e.g. right-clicking the preview panel) while a deep multi-column
+    path is open. The base NemoView hidden-files handler was also reloading
+    the view and wiping the whole column navigation, which could crash while
+    iterating columns being freed. The column view now ignores the base
+    preference handling and reloads each column in place; the breadcrumb
+    (drilled-into folders) selection is preserved across the toggle.
+
 nemo (1.0.31) unstable; urgency=medium
 
   [ Column View ]
