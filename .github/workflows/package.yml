@@ -226,11 +226,23 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           allowUpdates: true
           body: |
-            ## Nemo ${{ steps.version.outputs.version }}
+            ## Nemo ${{ steps.version.outputs.version }} — Column View: Finder-style breadcrumb selection
 
             Custom Nemo build that adds a macOS Finder-style **Column View (Miller columns)**
             and bundles the **nemo-fileroller** extension so the **Compress… / Extract Here**
             context menu entries work out of the box.
+
+            ### What's new in Column View
+            - **Ancestor folders stay selected (breadcrumb).** When you drill into a deep folder,
+              the folders you went through remain highlighted in their columns, Finder-style. Only
+              the columns to the right of the navigated column are cleared, so the whole path
+              (e.g. `Documents → etc → egemen → PlusScore.net → PlusScoreMobile`) stays visible and
+              selected. Selecting a file in the deepest column no longer drops the parent folder's
+              selection.
+            - **Opened folder loads as a single column.** Opening a folder shows it as a single
+              column instead of building the full ancestor chain up to the filesystem root (which
+              always started the view at `/`). The breadcrumb is still built progressively as you
+              click through subfolders, just like the other Nemo views.
 
             ### Highlights
             - **Column View**: a new view mode (toolbar button "Columns", view menu, and the
