@@ -1,3 +1,55 @@
+nemo (1.0.31) unstable; urgency=medium
+
+  [ Column View ]
+  * Open the clicked folder as a single column on initial load instead of
+    building the full ancestor chain up to the filesystem root. The previous
+    behaviour always started the view at "/" (e.g. opening Pictures showed
+    "/", "home", "ulas", "Pictures"), which was unexpected. Now the opened
+    folder is the only column at load time; the breadcrumb (ancestor folders
+    staying highlighted) is still built progressively as you click through
+    subfolders, exactly like the other Nemo views.
+
+nemo (1.0.30) unstable; urgency=medium
+
+  [ Column View ]
+  * Keep ancestor folder selections highlighted when drilling into a deep
+    path (macOS Finder-style breadcrumb). Previously every navigation
+    cleared the selection of all other columns, so only the deepest folder
+    stayed selected and selecting a file inside it also dropped the parent
+    folder's selection. The view now only clears the columns to the right of
+    the navigated column and re-selects the opened folder in its parent
+    column, so the whole Documents -> etc -> egemen -> PlusScore.net ->
+    PlusScoreMobile chain remains selected. Selecting a file in the deepest
+    column no longer clears the ancestor selections.
+  * Build the full ancestor column chain when loading a deep location
+    (e.g. via the path bar or a bookmark), not just a single column, so the
+    breadcrumb path is visible and each ancestor folder is highlighted.
+    The breadcrumb selection is applied once the row is present and lazily
+    re-applied if it loads asynchronously.
+
+nemo (1.0.29) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix SIGSEGV crash when the column view is closed or switched away while a
+    directory is still loading. The per-column NemoDirectory signal handlers
+    (files_changed/files_added/done_loading) and monitors were only torn down
+    in finalize, which runs after GTK destroys the column widgets (and their
+    GtkListStore models). The cached NemoDirectory could then emit
+    "files_changed" between widget disposal and finalize, hitting a freed
+    GtkListStore in column_view_column_files_changed_cb. A new dispose vfunc
+    now disconnects the directory handlers, removes the monitors, and marks
+    each column disposed before the widget tree is destroyed, so any late
+    emission bails out safely. The list_store pointer is also nulled after the
+    widget is destroyed as defense-in-depth.
+  * Fix SIGSEGV in column_view_preview_file_changed_cb (use-after-free of the
+    view). The preview panel connected to the previewed file's "changed"
+    signal with a plain g_signal_connect, so the callback could fire on a
+    NemoFile after the column view had been finalized and its memory reused,
+    dereferencing a freed view->priv. The connection now uses
+    g_signal_connect_object (auto-disconnected when the view is finalized),
+    the preview resources are also torn down in the dispose vfunc, and
+    column_view_update_preview bails out early when the view is disposed.
+
 nemo (1.0.28) unstable; urgency=medium
 
   [ Column View ]

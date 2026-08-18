@@ -71,6 +71,11 @@ typedef struct {
 	gboolean disposed;
 	gboolean cleared;
 
+	/* The file that should stay selected in this column as part of the
+	 * breadcrumb path (the row that leads to the next column). Applied
+	 * once the row is present, including lazily on async file additions. */
+	NemoFile *selection_file;
+
 	NemoTreeViewDragDest *drag_dest;
 
 	guint dwell_timeout_id;
@@ -79,6 +84,7 @@ typedef struct {
 
 struct _NemoColumnViewPriv {
 	GtkWidget *columns_container;
+	gboolean disposed;
 	GList *columns;
 
 	NemoZoomLevel zoom_level;
@@ -142,7 +148,8 @@ static void column_view_update_selection (NemoColumnView *view);
 static void column_view_invalidate_selection (NemoColumnView *view);
 static void column_view_notify_selection_changed (NemoColumnView *view);
 static void column_view_on_selection_changed (GtkTreeSelection *tree_selection, gpointer user_data);
-static void column_view_clear_other_columns_selection (NemoColumnView *view, NemoColumnViewColumn *keep_col);
+static void column_view_clear_columns_right_of (NemoColumnView *view, NemoColumnViewColumn *keep_col);
+static gboolean column_view_select_file_in_column (NemoColumnViewColumn *col, NemoFile *file);
 static void column_view_clear (NemoView *nemo_view);
 static void column_view_column_files_added_cb (NemoDirectory *directory, GList *files, gpointer user_data);
 static void column_view_column_update_empty_state (NemoColumnViewColumn *col);
@@ -331,6 +338,7 @@ column_view_column_new (NemoColumnView *view)
 	col->view = view;
 	col->disposed = FALSE;
 	col->cleared = FALSE;
+	col->selection_file = NULL;
 
 	col->column_widget = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
 
@@ -876,6 +884,11 @@ column_view_column_free (NemoColumnViewColumn *col)
 	 * readable. */
 	col->disposed = TRUE;
 
+	if (col->selection_file != NULL) {
+		nemo_file_unref (col->selection_file);
+		col->selection_file = NULL;
+	}
+
 	column_view_column_clear (col);
 
 	if (col->tree_view != NULL) {
@@ -899,6 +912,12 @@ column_view_column_free (NemoColumnViewColumn *col)
 		gtk_widget_destroy (col->column_widget);
 		col->column_widget = NULL;
 	}
+
+	/* The tree_view held the only strong ref to the list_store; once the
+	 * widget is destroyed the store is gone. Null the pointer so any late
+	 * callback that somehow bypasses the disposed guard can't dereference
+	 * freed memory. */
+	col->list_store = NULL;
 
 	if (col->drag_dest != NULL) {
 		/* Drop the back-pointer to this column so an in-progress drag
@@ -958,6 +977,11 @@ column_view_column_clear (NemoColumnViewColumn *col)
 	if (col == NULL || col->list_store == NULL || col->cleared) return;
 
 	col->cleared = TRUE;
+
+	if (col->selection_file != NULL) {
+		nemo_file_unref (col->selection_file);
+		col->selection_file = NULL;
+	}
 
 	valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (col->list_store), &iter);
 	while (valid) {
@@ -1074,6 +1098,14 @@ column_view_column_files_added_cb (NemoDirectory *directory,
 
 	for (l = files; l != NULL; l = l->next) {
 		column_view_column_add_file (col, NEMO_FILE (l->data));
+	}
+
+	/* Lazily (re)apply the breadcrumb selection once the row exists. */
+	if (col->selection_file != NULL) {
+		if (column_view_select_file_in_column (col, col->selection_file)) {
+			nemo_file_unref (col->selection_file);
+			col->selection_file = NULL;
+		}
 	}
 
 	column_view_column_update_empty_state (col);
@@ -1308,20 +1340,61 @@ column_view_do_popup_menu (NemoColumnView *view, GtkTreeView *tree_view, GdkEven
 }
 
 static void
-column_view_clear_other_columns_selection (NemoColumnView *view, NemoColumnViewColumn *keep_col)
+column_view_clear_columns_right_of (NemoColumnView *view, NemoColumnViewColumn *keep_col)
 {
 	GList *l;
+	gboolean past = FALSE;
 
+	/* Keep the breadcrumb path alive: only the columns to the RIGHT of
+	 * keep_col (the ones that will be rebuilt for the new navigation)
+	 * lose their selection. keep_col and every ancestor column to its
+	 * left stay selected, so the folders you drilled through remain
+	 * highlighted, Finder-style. */
 	for (l = view->priv->columns; l != NULL; l = l->next) {
 		NemoColumnViewColumn *col = l->data;
 
 		if (col == keep_col) {
+			past = TRUE;
 			continue;
 		}
 
-		gtk_tree_selection_unselect_all (
-			gtk_tree_view_get_selection (GTK_TREE_VIEW (col->tree_view)));
+		if (past) {
+			gtk_tree_selection_unselect_all (
+				gtk_tree_view_get_selection (GTK_TREE_VIEW (col->tree_view)));
+		}
 	}
+}
+
+static gboolean
+column_view_select_file_in_column (NemoColumnViewColumn *col, NemoFile *file)
+{
+	GtkTreeSelection *sel;
+	GtkTreeIter iter;
+	gboolean valid;
+	gboolean found = FALSE;
+
+	if (col == NULL || file == NULL || col->list_store == NULL) {
+		return FALSE;
+	}
+
+	sel = gtk_tree_view_get_selection (GTK_TREE_VIEW (col->tree_view));
+
+	valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (col->list_store), &iter);
+	while (valid) {
+		NemoFile *existing;
+
+		gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
+				    COLUMN_FILE, &existing, -1);
+		if (existing == file) {
+			gtk_tree_selection_unselect_all (sel);
+			gtk_tree_selection_select_iter (sel, &iter);
+			found = TRUE;
+			break;
+		}
+		valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (col->list_store), &iter);
+	}
+
+	return found;
 }
 
 static void
@@ -1412,7 +1485,14 @@ column_view_open_directory (NemoColumnView *view, NemoColumnViewColumn *col, Nem
 	gtk_widget_queue_resize (view->priv->columns_container);
 	column_view_update_address_bar (view, dir_location);
 
-	column_view_clear_other_columns_selection (view, col);
+	column_view_clear_columns_right_of (view, col);
+	column_view_select_file_in_column (col, file);
+
+	if (col->selection_file != NULL) {
+		nemo_file_unref (col->selection_file);
+	}
+	col->selection_file = nemo_file_ref (file);
+
 	view->priv->selection_column = col;
 
 	g_object_unref (dir_location);
@@ -1714,7 +1794,7 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 					return TRUE;
 				}
 
-				column_view_clear_other_columns_selection (view, col);
+				column_view_clear_columns_right_of (view, col);
 
 			/* Our own double-click handling: works regardless of
 			 * selection state, since the default "row-activated"
@@ -1776,7 +1856,7 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 			gtk_tree_path_free (right_path);
 
 			if (col != NULL) {
-				column_view_clear_other_columns_selection (view, col);
+				column_view_clear_columns_right_of (view, col);
 			}
 		} else {
 			GtkTreeSelection *sel = gtk_tree_view_get_selection (tree_view);
@@ -1846,7 +1926,7 @@ model = gtk_tree_view_get_model (GTK_TREE_VIEW (col->tree_view));
 			column_view_update_selection (view);
 			column_view_notify_selection_changed (view);
 		} else if (file != NULL) {
-			column_view_clear_other_columns_selection (view, col);
+			column_view_clear_columns_right_of (view, col);
 			view->priv->selection_column = col;
 
 			column_view_update_selection (view);
@@ -2610,6 +2690,10 @@ column_view_update_preview (NemoColumnView *view)
 	GList *selection;
 	NemoFile *file;
 
+	if (view->priv->disposed) {
+		return;
+	}
+
 	if (view->priv->preview_panel == NULL) {
 		return;
 	}
@@ -2639,8 +2723,9 @@ column_view_update_preview (NemoColumnView *view)
 
 	view->priv->previewed_file = nemo_file_ref (file);
 	view->priv->previewed_file_changed_id =
-		g_signal_connect (view->priv->previewed_file, "changed",
-				  G_CALLBACK (column_view_preview_file_changed_cb), view);
+		g_signal_connect_object (view->priv->previewed_file, "changed",
+					G_CALLBACK (column_view_preview_file_changed_cb),
+					view, G_CONNECT_DEFAULT);
 
 	column_view_preview_refresh (view);
 }
@@ -3474,6 +3559,45 @@ nemo_column_view_init (NemoColumnView *view)
 }
 
 static void
+column_view_dispose (GObject *object)
+{
+	NemoColumnView *view = NEMO_COLUMN_VIEW (object);
+	GList *cols;
+	GList *l;
+
+	view->priv->disposed = TRUE;
+	column_view_preview_free_resources (view);
+
+	/* Tear the columns (and their directory monitors/signal handlers) down
+	 * here, BEFORE the widget tree is destroyed by the parent dispose.
+	 * Otherwise the cached NemoDirectory can still emit "files_changed"
+	 * between widget disposal and finalize, hitting a freed GtkListStore
+	 * (see column_view_column_files_changed_cb). Marking each column
+	 * disposed first makes any such late emission bail out safely. */
+	g_signal_handlers_disconnect_by_func (nemo_preferences,
+					      column_view_hidden_files_changed_cb, view);
+	g_signal_handlers_disconnect_by_func (nemo_preferences,
+					      column_view_sort_order_changed_cb, view);
+	g_signal_handlers_disconnect_by_func (nemo_preferences,
+					      column_view_sort_reverse_changed_cb, view);
+
+	if (view->priv->clipboard_info_id > 0) {
+		g_signal_handler_disconnect (nemo_clipboard_monitor_get (),
+					     view->priv->clipboard_info_id);
+		view->priv->clipboard_info_id = 0;
+	}
+
+	cols = view->priv->columns;
+	view->priv->columns = NULL;
+	for (l = cols; l != NULL; l = l->next) {
+		column_view_column_free ((NemoColumnViewColumn *) l->data);
+	}
+	g_list_free (cols);
+
+	G_OBJECT_CLASS (parent_class)->dispose (object);
+}
+
+static void
 column_view_finalize (GObject *object)
 {
 	NemoColumnView *view = NEMO_COLUMN_VIEW (object);
@@ -3490,6 +3614,13 @@ column_view_finalize (GObject *object)
 		g_signal_handler_disconnect (nemo_clipboard_monitor_get (),
 					     view->priv->clipboard_info_id);
 		view->priv->clipboard_info_id = 0;
+	}
+
+	/* column_view_dispose already tore the columns down and emptied the
+	 * list, but guard anyway so we never double-free a column struct. */
+	if (view->priv->columns == NULL) {
+		G_OBJECT_CLASS (parent_class)->finalize (object);
+		return;
 	}
 
 	for (l = view->priv->columns; l != NULL; l = l->next) {
@@ -3561,6 +3692,7 @@ nemo_column_view_class_init (NemoColumnViewClass *class)
 
 	g_type_class_add_private (class, sizeof (NemoColumnViewPriv));
 
+	object_class->dispose = column_view_dispose;
 	object_class->finalize = column_view_finalize;
 
 	widget_class->button_press_event = column_view_button_press_event;
