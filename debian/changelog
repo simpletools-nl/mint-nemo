@@ -1,3 +1,16 @@
+nemo (1.0.35) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix crashes on file delete and rename in Column View. When a column was
+    closed, its backing directory's NemoFile "changed" signal handler was
+    never disconnected, so a later directory change (triggered by deleting
+    or renaming a file) invoked the callback with a freed column struct and
+    crashed (SEGV). The handler is now disconnected in column teardown.
+  * Fix use-after-free in column_view_purge_dead_descendant_columns: it
+    iterated the live column list while tearing columns down, so a deleted
+    folder with open descendant columns could dereference freed memory. It
+    now walks a snapshot and rebuilds once.
+
 nemo (1.0.33) unstable; urgency=medium
 
   [ Column View ]

@@ -958,6 +958,10 @@ column_view_column_free (NemoColumnViewColumn *col)
 		col->directory = NULL;
 	}
 
+	if (col->directory_file_changed_id > 0 && col->directory_file != NULL) {
+		g_signal_handler_disconnect (col->directory_file, col->directory_file_changed_id);
+		col->directory_file_changed_id = 0;
+	}
 	if (col->directory_file != NULL) {
 		nemo_file_unref (col->directory_file);
 		col->directory_file = NULL;
@@ -1135,48 +1139,64 @@ column_view_purge_dead_descendant_columns (NemoColumnView *view,
 		return;
 	}
 
-	for (l = view->priv->columns; l != NULL; l = l->next) {
-		NemoColumnViewColumn *col = l->data;
-		GFile *col_loc;
-		GFile *file_loc;
+	/* Iterate over a snapshot: column_view_rebuild_after_column() removes
+	 * and frees columns from view->priv->columns while we run, so walking
+	 * the live list would be a use-after-free. A single rebuild already
+	 * tears down every column to the right of source_index, so once we
+	 * find one match we rebuild and return. */
+	{
+		GList *columns_copy = g_list_copy (view->priv->columns);
 
-		if (col->directory_file == NULL ||
-		    !NEMO_IS_FILE (col->directory_file)) {
-			continue;
-		}
+		for (l = columns_copy; l != NULL; l = l->next) {
+			NemoColumnViewColumn *col = l->data;
+			GFile *col_loc = NULL;
+			GFile *file_loc = NULL;
+			gint index;
 
-		/* Compare by location, not by NemoFile pointer identity: the
-		 * directory may hand out a different NemoFile instance for a
-		 * file that was just deleted. */
-		col_loc = nemo_file_get_location (col->directory_file);
-		file_loc = nemo_file_get_location (file);
+			if (col->directory_file == NULL ||
+			    !NEMO_IS_FILE (col->directory_file)) {
+				continue;
+			}
 
-		if (col_loc != NULL && file_loc != NULL &&
-		    g_file_equal (col_loc, file_loc)) {
-			gint index = g_list_index (view->priv->columns, l);
+			/* Compare by location, not by NemoFile pointer identity: the
+			 * directory may hand out a different NemoFile instance for a
+			 * file that was just deleted. */
+			col_loc = nemo_file_get_location (col->directory_file);
+			file_loc = nemo_file_get_location (file);
 
-			/* The removed file is the directory backing this column
-			 * (and, since columns form a parent->child chain, every
-			 * column to its right as well). Tear them all down,
-			 * keeping the source column (which still legitimately
-			 * exists). */
-			if (index > source_index) {
-				column_view_rebuild_after_column (view, source_index);
+			if (col_loc != NULL && file_loc != NULL &&
+			    g_file_equal (col_loc, file_loc)) {
+				index = g_list_index (view->priv->columns, col);
 
-				{
-					NemoColumnViewColumn *last;
+				/* The removed file is the directory backing this
+				 * column (and, since columns form a parent->child
+				 * chain, every column to its right as well). Tear
+				 * them all down, keeping the source column (which
+				 * still legitimately exists). */
+				if (index > source_index) {
+					g_list_free (columns_copy);
+					g_clear_object (&col_loc);
+					g_clear_object (&file_loc);
+					column_view_rebuild_after_column (view, source_index);
 
-					last = g_list_last (view->priv->columns)->data;
-					if (last != NULL && last->location != NULL) {
-						column_view_update_address_bar (view,
-										 last->location);
+					{
+						NemoColumnViewColumn *last;
+
+						last = g_list_last (view->priv->columns)->data;
+						if (last != NULL && last->location != NULL) {
+							column_view_update_address_bar (view,
+											 last->location);
+						}
 					}
+					return;
 				}
 			}
+
+			g_clear_object (&col_loc);
+			g_clear_object (&file_loc);
 		}
 
-		g_clear_object (&col_loc);
-		g_clear_object (&file_loc);
+		g_list_free (columns_copy);
 	}
 }
 
