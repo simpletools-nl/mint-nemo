@@ -64,6 +64,7 @@ typedef struct {
 	gulong files_added_id;
 	gulong files_changed_id;
 	gulong done_loading_id;
+	gulong directory_file_changed_id;
 
 	gpointer monitor_client;
 
@@ -152,6 +153,11 @@ static void column_view_clear_columns_right_of (NemoColumnView *view, NemoColumn
 static gboolean column_view_select_file_in_column (NemoColumnViewColumn *col, NemoFile *file);
 static void column_view_clear (NemoView *nemo_view);
 static void column_view_column_files_added_cb (NemoDirectory *directory, GList *files, gpointer user_data);
+static void column_view_column_directory_file_changed_cb (NemoFile *file, NemoColumnViewColumn *col);
+static void column_view_purge_dead_descendant_columns (NemoColumnView *view,
+						      NemoColumnViewColumn *source_col,
+						      NemoFile *file);
+static void column_view_update_address_bar (NemoColumnView *view, GFile *location);
 static void column_view_column_update_empty_state (NemoColumnViewColumn *col);
 static void column_view_resort_all (NemoColumnView *view);
 static void column_view_update_sort_actions (NemoColumnView *view);
@@ -1112,6 +1118,105 @@ column_view_column_files_added_cb (NemoDirectory *directory,
 }
 
 static void
+column_view_purge_dead_descendant_columns (NemoColumnView *view,
+					   NemoColumnViewColumn *source_col,
+					   NemoFile *file)
+{
+	GList *l;
+	gint source_index;
+
+	if (view == NULL || view->priv->disposed ||
+	    source_col == NULL || file == NULL) {
+		return;
+	}
+
+	source_index = g_list_index (view->priv->columns, source_col);
+	if (source_index < 0) {
+		return;
+	}
+
+	for (l = view->priv->columns; l != NULL; l = l->next) {
+		NemoColumnViewColumn *col = l->data;
+		GFile *col_loc;
+		GFile *file_loc;
+
+		if (col->directory_file == NULL ||
+		    !NEMO_IS_FILE (col->directory_file)) {
+			continue;
+		}
+
+		/* Compare by location, not by NemoFile pointer identity: the
+		 * directory may hand out a different NemoFile instance for a
+		 * file that was just deleted. */
+		col_loc = nemo_file_get_location (col->directory_file);
+		file_loc = nemo_file_get_location (file);
+
+		if (col_loc != NULL && file_loc != NULL &&
+		    g_file_equal (col_loc, file_loc)) {
+			gint index = g_list_index (view->priv->columns, l);
+
+			/* The removed file is the directory backing this column
+			 * (and, since columns form a parent->child chain, every
+			 * column to its right as well). Tear them all down,
+			 * keeping the source column (which still legitimately
+			 * exists). */
+			if (index > source_index) {
+				column_view_rebuild_after_column (view, source_index);
+
+				{
+					NemoColumnViewColumn *last;
+
+					last = g_list_last (view->priv->columns)->data;
+					if (last != NULL && last->location != NULL) {
+						column_view_update_address_bar (view,
+										 last->location);
+					}
+				}
+			}
+		}
+
+		g_clear_object (&col_loc);
+		g_clear_object (&file_loc);
+	}
+}
+
+static void
+column_view_column_directory_file_changed_cb (NemoFile *file,
+					      NemoColumnViewColumn *col)
+{
+	gint index;
+
+	if (col == NULL || col->disposed || !NEMO_IS_FILE (file) ||
+	    col->view == NULL || col->view->priv->disposed) {
+		return;
+	}
+
+	/* This column's backing directory was deleted/moved (Trash, etc.).
+	 * Tear down this column and every column to its right. Listening to
+	 * the directory_file directly is robust regardless of which directory
+	 * monitor first reports the deletion. */
+	if (!nemo_file_is_gone (file)) {
+		return;
+	}
+
+	index = g_list_index (col->view->priv->columns, col);
+	if (index < 0) {
+		return;
+	}
+
+	column_view_rebuild_after_column (col->view, index - 1);
+
+	{
+		NemoColumnViewColumn *last;
+
+		last = g_list_last (col->view->priv->columns)->data;
+		if (last != NULL && last->location != NULL) {
+			column_view_update_address_bar (col->view, last->location);
+		}
+	}
+}
+
+static void
 column_view_column_files_changed_cb (NemoDirectory *directory,
 				     GList *files,
 				     gpointer user_data)
@@ -1128,10 +1233,14 @@ column_view_column_files_changed_cb (NemoDirectory *directory,
 
 	for (l = files; l != NULL; l = l->next) {
 		NemoFile *changed_file = NEMO_FILE (l->data);
+		gboolean gone;
 
 		if (!NEMO_IS_FILE (changed_file)) {
 			continue;
 		}
+
+		gone = nemo_file_is_gone (changed_file) ||
+		       !nemo_directory_contains_file (col->directory, changed_file);
 
 		valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (col->list_store), &iter);
 		while (valid) {
@@ -1139,11 +1248,11 @@ column_view_column_files_changed_cb (NemoDirectory *directory,
 					    COLUMN_FILE, &existing_file, -1);
 			if (existing_file == changed_file &&
 			    NEMO_IS_FILE (existing_file)) {
-				if (nemo_file_is_gone (changed_file) ||
-				    !nemo_directory_contains_file (col->directory, changed_file)) {
+				if (gone) {
 					gtk_list_store_remove (col->list_store, &iter);
 					nemo_file_unref (existing_file);
 					column_view_invalidate_selection (col->view);
+					column_view_column_update_empty_state (col);
 				} else {
 					GdkPixbuf *icon;
 					gchar *name;
@@ -1152,9 +1261,9 @@ column_view_column_files_changed_cb (NemoDirectory *directory,
 					name = nemo_file_get_display_name (changed_file);
 					is_dir = (nemo_file_get_file_type (changed_file) == G_FILE_TYPE_DIRECTORY);
 					icon = nemo_file_get_icon_pixbuf (changed_file,
-									  nemo_get_icon_size_for_zoom_level (col->view->priv->zoom_level),
-									  TRUE, 1,
-									  NEMO_FILE_ICON_FLAGS_NONE);
+								  nemo_get_icon_size_for_zoom_level (col->view->priv->zoom_level),
+								  TRUE, 1,
+								  NEMO_FILE_ICON_FLAGS_NONE);
 
 					gtk_list_store_set (col->list_store, &iter,
 							    COLUMN_ICON, icon,
@@ -1169,6 +1278,17 @@ column_view_column_files_changed_cb (NemoDirectory *directory,
 				break;
 			}
 			valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (col->list_store), &iter);
+		}
+
+		/* A file that is gone (deleted/moved out of this directory) may be
+		 * the directory backing a child column. Purge those descendant
+		 * columns now, whether or not a matching row was still present
+		 * (the row may already have been removed by NemoView's own
+		 * remove_file virtual). */
+		if (gone) {
+			column_view_purge_dead_descendant_columns (col->view,
+								  col,
+								  changed_file);
 		}
 	}
 
@@ -1257,6 +1377,12 @@ column_view_column_load_directory (NemoColumnViewColumn *col, GFile *location)
 	col->directory = nemo_directory_get (location);
 
 	col->directory_file = nemo_file_get (location);
+
+	/* Watch the backing directory file itself: when it is deleted/moved
+	 * (marked gone), tear down this column and its descendants. */
+	col->directory_file_changed_id = g_signal_connect (col->directory_file, "changed",
+							       G_CALLBACK (column_view_column_directory_file_changed_cb),
+							       col);
 
 	col->done_loading_id = g_signal_connect (col->directory, "done_loading",
 						 G_CALLBACK (column_view_column_done_loading_cb), col);
@@ -2063,10 +2189,15 @@ column_view_remove_file (NemoView *nemo_view, NemoFile *file, NemoDirectory *dir
 			gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
 					    COLUMN_FILE, &existing_file, -1);
 			if (existing_file == file) {
-				nemo_file_unref (file);
 				gtk_list_store_remove (col->list_store, &iter);
 				column_view_invalidate_selection (col->view);
 				column_view_column_update_empty_state (col);
+				/* The removed file may be the directory backing a
+				 * child column; tear those descendants down. */
+				column_view_purge_dead_descendant_columns (col->view,
+								          col,
+									  file);
+				nemo_file_unref (file);
 				return;
 			}
 			valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (col->list_store), &iter);
@@ -3678,11 +3809,15 @@ column_view_finalize (GObject *object)
 				g_signal_handler_disconnect (col->directory, col->files_changed_id);
 				col->files_changed_id = 0;
 			}
-			if (col->done_loading_id > 0) {
-				g_signal_handler_disconnect (col->directory, col->done_loading_id);
-				col->done_loading_id = 0;
-			}
-			if (col->monitor_client != NULL) {
+		if (col->done_loading_id > 0) {
+			g_signal_handler_disconnect (col->directory, col->done_loading_id);
+			col->done_loading_id = 0;
+		}
+		if (col->directory_file_changed_id > 0) {
+			g_signal_handler_disconnect (col->directory_file, col->directory_file_changed_id);
+			col->directory_file_changed_id = 0;
+		}
+		if (col->monitor_client != NULL) {
 				nemo_directory_file_monitor_remove (col->directory, col->monitor_client);
 				col->monitor_client = NULL;
 			}

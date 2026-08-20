@@ -233,12 +233,12 @@ jobs:
             context menu entries work out of the box.
 
             ### Latest fix
-            - **Crash when toggling "Show Hidden Files" from the background context menu (e.g.
-              right-clicking the preview panel) while a deep multi-column path is open.** The base
-              `NemoView` hidden-files handler was also reloading the view and wiping the whole
-              column navigation, which could crash while iterating columns being freed. The column
-              view now reloads each column in place and preserves the breadcrumb (drilled-into
-              folders) selection across the toggle.
+            - **Orphaned column staying on screen after deleting its backing folder in Column View.**
+              Each column now watches its own backing directory's `NemoFile` "changed" signal; when
+              that directory is deleted or moved (e.g. to Trash) the column and every column to its
+              right are torn down. Previously the removal relied on the parent column's directory
+              monitor or the `NemoView` `remove_file` virtual observing the deletion, which left the
+              child column visible after its backing folder was removed.
 
             ### Highlights
             - **Column View**: a new view mode (toolbar button "Columns", view menu, and the

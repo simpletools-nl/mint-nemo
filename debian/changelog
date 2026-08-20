@@ -1,3 +1,14 @@
+nemo (1.0.33) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix orphaned column staying on screen after deleting the folder it
+    displays. Each column now watches its own backing directory's NemoFile
+    "changed" signal; when that directory is deleted or moved (e.g. to
+    Trash) the column and every column to its right are torn down. The
+    previous removal paths relied on the parent column's directory monitor
+    or the NemoView remove_file virtual observing the deletion, which left
+    the child column visible after its backing folder was removed.
+
 nemo (1.0.32) unstable; urgency=medium
 
   [ Column View ]
@@ -33,8 +44,7 @@ nemo (1.0.30) unstable; urgency=medium
     stayed selected and selecting a file inside it also dropped the parent
     folder's selection. The view now only clears the columns to the right of
     the navigated column and re-selects the opened folder in its parent
-    column, so the whole Documents -> etc -> egemen -> PlusScore.net ->
-    PlusScoreMobile chain remains selected. Selecting a file in the deepest
+    column, so the whole Documents -> etc -> John -> MySuperFolder chain remains selected. Selecting a file in the deepest
     column no longer clears the ancestor selections.
   * Build the full ancestor column chain when loading a deep location
     (e.g. via the path bar or a bookmark), not just a single column, so the
