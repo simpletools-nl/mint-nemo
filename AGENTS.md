@@ -191,12 +191,6 @@ GSETTINGS_SCHEMA_DIR=$(pwd)/build/schemas ./build/src/nemo
 GSETTINGS_SCHEMA_DIR=$(pwd)/build/schemas gdb ./build/src/nemo
 ```
 
-> **Ortam notu:** Bu geliştirme makinesinde **sudo yetkisi yok**. Paket (`*.deb`)
-> üretimi ve kurulumu root gerektirmeden, `DESTDIR` + `dpkg-deb --root-owner-group`
-> ile yapılır (bkz. `.github/workflows/package.yml`). `meson install` her zaman
-> `DESTDIR=/tmp/staging` ile çalıştır; sistem dizinlerine (`/usr`) doğrudan yazma.
-> Deb'i yerelde kurmak için `sudo` yerine makine sahibinden/CI'dan yararlan.
-
 ## Version
 
 ```bash
