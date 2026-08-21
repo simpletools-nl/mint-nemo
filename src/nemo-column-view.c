@@ -1083,6 +1083,7 @@ static gboolean
 column_view_column_is_still_valid (NemoColumnViewColumn *col, NemoDirectory *directory)
 {
 	if (col == NULL || col->disposed || col->view == NULL ||
+	    col->view->priv == NULL ||
 	    col->list_store == NULL || col->directory == NULL) {
 		return FALSE;
 	}
@@ -1207,7 +1208,8 @@ column_view_column_directory_file_changed_cb (NemoFile *file,
 	gint index;
 
 	if (col == NULL || col->disposed || !NEMO_IS_FILE (file) ||
-	    col->view == NULL || col->view->priv->disposed) {
+	    col->view == NULL || col->view->priv == NULL ||
+	    col->view->priv->disposed) {
 		return;
 	}
 
@@ -1351,6 +1353,19 @@ column_view_column_load_directory (NemoColumnViewColumn *col, GFile *location)
 	if (col == NULL || location == NULL) return;
 
 	col->cleared = FALSE;
+
+	/* Disconnect any previously connected directory_file "changed" handler
+	 * before binding a new one. column_view_column_load_directory() is
+	 * called again when the same column is reloaded (e.g. re-navigating to
+	 * the same location), and the handler is connected on every call.
+	 * Without this, the old handler id is overwritten and leaks; it then
+	 * keeps firing after the column/view is gone, dereferencing a freed
+	 * view (col->view->priv) and crashing. */
+	if (col->directory_file_changed_id > 0 && col->directory_file != NULL) {
+		g_signal_handler_disconnect (col->directory_file,
+					     col->directory_file_changed_id);
+		col->directory_file_changed_id = 0;
+	}
 
 	same_location = (col->location == location);
 
