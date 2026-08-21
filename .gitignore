@@ -47,3 +47,6 @@ debian/files
 
 obj-x86_64-linux-gnu
 *.deb
+
+# Local dev instructions (my own operational notes) - not tracked
+AGENTS.md
