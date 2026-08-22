@@ -1181,9 +1181,12 @@ column_view_purge_dead_descendant_columns (NemoColumnView *view,
 					column_view_rebuild_after_column (view, source_index);
 
 					{
-						NemoColumnViewColumn *last;
+						NemoColumnViewColumn *last = NULL;
+						GList *last_link = g_list_last (view->priv->columns);
 
-						last = g_list_last (view->priv->columns)->data;
+						if (last_link != NULL) {
+							last = last_link->data;
+						}
 						if (last != NULL && last->location != NULL) {
 							column_view_update_address_bar (view,
 											 last->location);
@@ -1226,14 +1229,36 @@ column_view_column_directory_file_changed_cb (NemoFile *file,
 		return;
 	}
 
-	column_view_rebuild_after_column (col->view, index - 1);
-
+	/* column_view_rebuild_after_column() frees col, so capture everything
+	 * we need beforehand. If the root column (index 0) is being torn down
+	 * the whole chain goes away; reload at its parent instead of crashing
+	 * on an empty column list. */
 	{
-		NemoColumnViewColumn *last;
+		NemoColumnView *view = col->view;
+		GFile *parent_loc = NULL;
 
-		last = g_list_last (col->view->priv->columns)->data;
-		if (last != NULL && last->location != NULL) {
-			column_view_update_address_bar (col->view, last->location);
+		if (index == 0 && col->location != NULL) {
+			parent_loc = g_file_get_parent (col->location);
+		}
+
+		column_view_rebuild_after_column (view, index - 1);
+
+		if (parent_loc != NULL) {
+			nemo_view_load_location (NEMO_VIEW (view), parent_loc);
+			g_object_unref (parent_loc);
+			return;
+		}
+
+		{
+			NemoColumnViewColumn *last = NULL;
+			GList *last_link = g_list_last (view->priv->columns);
+
+			if (last_link != NULL) {
+				last = last_link->data;
+			}
+			if (last != NULL && last->location != NULL) {
+				column_view_update_address_bar (view, last->location);
+			}
 		}
 	}
 }
