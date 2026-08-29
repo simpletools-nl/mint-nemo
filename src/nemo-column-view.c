@@ -983,6 +983,8 @@ column_view_column_clear (NemoColumnViewColumn *col)
 	GtkTreeIter iter;
 	NemoFile *file;
 	gboolean valid;
+	GtkTreeSelection *selection;
+	gulong sel_handler_id;
 
 	if (col == NULL || col->list_store == NULL || col->cleared) return;
 
@@ -993,6 +995,12 @@ column_view_column_clear (NemoColumnViewColumn *col)
 		col->selection_file = NULL;
 	}
 
+	/* Unref every NemoFile we hold and immediately drop the dangling
+	 * pointer from the list store. Otherwise the freed NemoFile* stays in
+	 * the COLUMN_FILE cell until gtk_list_store_clear() runs, and the
+	 * "row-deleted" signals emitted by that clear can re-enter through the
+	 * tree selection's "changed" handler into column_view_get_selection(),
+	 * which would dereference the freed pointer and crash (SIGSEGV). */
 	valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (col->list_store), &iter);
 	while (valid) {
 		gtk_tree_model_get (GTK_TREE_MODEL (col->list_store), &iter,
@@ -1000,10 +1008,26 @@ column_view_column_clear (NemoColumnViewColumn *col)
 		if (file != NULL && NEMO_IS_FILE (file)) {
 			nemo_file_unref (file);
 		}
+		gtk_list_store_set (col->list_store, &iter,
+				    COLUMN_FILE, NULL, -1);
 		valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (col->list_store), &iter);
 	}
 
+	/* Block the selection "changed" handler while clearing so we don't get
+	 * re-entered into column_view_update_selection()/get_selection() with a
+	 * half-torn-down model. */
+	selection = gtk_tree_view_get_selection (GTK_TREE_VIEW (col->tree_view));
+	sel_handler_id = g_signal_handlers_block_by_func (selection,
+							  column_view_on_selection_changed,
+							  col->view);
+
 	gtk_list_store_clear (col->list_store);
+
+	if (sel_handler_id != 0) {
+		g_signal_handlers_unblock_by_func (selection,
+						    column_view_on_selection_changed,
+						    col->view);
+	}
 
 	if (col->stack != NULL) {
 		gtk_stack_set_visible_child_name (GTK_STACK (col->stack), "view");
