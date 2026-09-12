@@ -132,6 +132,7 @@ struct _NemoColumnViewPriv {
 	gboolean ignore_button_release;
 	gboolean pending_drag;
 	gboolean collapse_on_release;
+	gboolean press_modifies_selection;
 
 	gint click_policy;
 	gint64 last_double_click_time;
@@ -1971,6 +1972,8 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 		view->priv->press_col = col;
 		view->priv->ignore_button_release = FALSE;
 		view->priv->collapse_on_release = FALSE;
+		view->priv->press_modifies_selection =
+			column_view_button_event_modifies_selection (event);
 
 		g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
 
@@ -2004,7 +2007,12 @@ column_view_on_button_press (GtkWidget *widget, GdkEventButton *event, gpointer 
 					return TRUE;
 				}
 
-				column_view_clear_columns_right_of (view, col);
+				/* A modifier click is a pure selection gesture: it
+				 * must not navigate, so don't tear down the
+				 * drill-down columns to the right. */
+				if (!view->priv->press_modifies_selection) {
+					column_view_clear_columns_right_of (view, col);
+				}
 
 			/* Our own double-click handling: works regardless of
 			 * selection state, since the default "row-activated"
@@ -2113,6 +2121,17 @@ column_view_on_button_release (GtkWidget *widget, GdkEventButton *event, gpointe
 
 model = gtk_tree_view_get_model (GTK_TREE_VIEW (col->tree_view));
 
+		if (view->priv->press_modifies_selection) {
+			/* Shift/Ctrl press: a pure selection gesture (range
+			 * extend / toggle). The tree view's default press
+			 * handler has already applied the requested selection;
+			 * don't navigate (don't open the clicked directory in a
+			 * new column) and don't collapse the multi-selection to
+			 * the clicked row. */
+			view->priv->selection_column = col;
+			column_view_update_selection (view);
+			goto reset;
+		}
 		if (gtk_tree_model_get_iter (model, &iter, view->priv->press_path)) {
 			gtk_tree_model_get (model, &iter, COLUMN_FILE, &file, -1);
 		}
@@ -2169,6 +2188,7 @@ reset:
 	view->priv->press_button = 0;
 	view->priv->pending_drag = FALSE;
 	view->priv->collapse_on_release = FALSE;
+	view->priv->press_modifies_selection = FALSE;
 	g_clear_pointer (&view->priv->press_path, gtk_tree_path_free);
 
 	return FALSE;
