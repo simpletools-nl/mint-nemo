@@ -1,3 +1,30 @@
+nemo (1.0.36) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix crash when navigating via the sidebar. Reloading a column at the same
+    location reconnected its directory_file "changed" handler without
+    disconnecting the previous one, so the old handler id was overwritten and
+    leaked and the stale callback later ran on a freed column. The previous
+    handler is now disconnected before reconnecting.
+  * Fix NULL-dereference crash when the root column's backing directory is
+    deleted. The column chain was rebuilt with index - 1, which emptied the
+    column list when the removed column was the root (index 0), and the
+    subsequent g_list_last(...)->data dereference crashed. An empty column
+    list is now handled.
+  * Fix SIGSEGV when toggling "Show Hidden Files". When the preference
+    changed, every column was reloaded via column_view_column_clear(), which
+    unref'd each row's NemoFile but left the freed pointer in the COLUMN_FILE
+    cell, so later access dereferenced freed memory. The stale file pointers
+    are now cleared.
+  * Fix Shift+click and Ctrl+click multi-selection in Column View. Every
+    button release on a directory row unconditionally opened the folder and
+    then collapsed the column's selection to the clicked row, wiping out the
+    range/toggle selection the tree view had just applied (only the last
+    clicked folder stayed selected). Modifier presses are now treated as
+    pure selection gestures: the multi-selection is kept, the folder is not
+    opened into a new column, and the drill-down columns to the right are
+    not torn down.
+
 nemo (1.0.35) unstable; urgency=medium
 
   [ Column View ]
@@ -10,14 +37,6 @@ nemo (1.0.35) unstable; urgency=medium
     iterated the live column list while tearing columns down, so a deleted
     folder with open descendant columns could dereference freed memory. It
     now walks a snapshot and rebuilds once.
-  * Fix Shift+click and Ctrl+click multi-selection in Column View. Every
-    button release on a directory row unconditionally opened the folder and
-    then collapsed the column's selection to the clicked row, wiping out the
-    range/toggle selection the tree view had just applied (only the last
-    clicked folder stayed selected). Modifier presses are now treated as
-    pure selection gestures: the multi-selection is kept, the folder is not
-    opened into a new column, and the drill-down columns to the right are
-    not torn down.
 
 nemo (1.0.33) unstable; urgency=medium
 

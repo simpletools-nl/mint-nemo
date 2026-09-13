@@ -232,15 +232,26 @@ jobs:
             and bundles the **nemo-fileroller** extension so the **Compress… / Extract Here**
             context menu entries work out of the box.
 
-            ### Latest fix
-            - **Crashes on file delete and rename in Column View.** When a column was closed, its
-              backing directory's `NemoFile` "changed" signal handler was never disconnected, so a
-              later directory change (triggered by deleting or renaming a file) invoked the callback
-              with a freed column struct and crashed (SEGV). The handler is now disconnected in
-              column teardown.
-            - **Use-after-free in `column_view_purge_dead_descendant_columns`.** It iterated the
-              live column list while tearing columns down, so a deleted folder with open descendant
-              columns could dereference freed memory. It now walks a snapshot and rebuilds once.
+            ### Fixes in this release
+            - **Crash when navigating via the sidebar.** Reloading a column at the same location
+              reconnected its backing directory's `NemoFile` "changed" handler without
+              disconnecting the previous one, so the stale handler id was overwritten and leaked
+              and its callback later ran on a freed column. The old handler is now disconnected
+              before reconnecting.
+            - **NULL-dereference crash when the root column's backing directory is deleted.** The
+              column chain was rebuilt with `index - 1`, which emptied the column list when the
+              removed column was the root, and the following `g_list_last(...)->data` dereference
+              crashed. An empty column list is now handled.
+            - **SIGSEGV when toggling "Show Hidden Files".** Reloading every column freed each
+              row's `NemoFile` but left the freed pointer in the list store's file cell, so later
+              access dereferenced freed memory. The stale file pointers are now cleared.
+            - **Shift+click and Ctrl+click multi-selection in Column View.** Releasing the mouse
+              on a directory row unconditionally opened the folder and collapsed the column's
+              selection to the clicked row, wiping out the range/toggle selection the tree view
+              had just applied (only the last clicked folder stayed selected). Modifier presses
+              are now treated as pure selection gestures: the multi-selection is kept, the folder
+              is not opened into a new column, and the drill-down columns to the right are not
+              torn down.
 
             ### Highlights
             - **Column View**: a new view mode (toolbar button "Columns", view menu, and the
