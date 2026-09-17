@@ -1,3 +1,22 @@
+nemo (1.0.37) unstable; urgency=medium
+
+  [ Column View ]
+  * Fix the path bar highlighting the wrong folder after clicking a folder in
+    Column View. The view only wrote slot->location, leaving the slot's
+    "viewed file" pointing at the previously opened folder (e.g. the folder
+    the window was opened in). When that stale file emitted a "changed"
+    signal (directory loads, item counts, inotify events triggered by the
+    column monitors), the slot rewrote its location back to the old folder
+    and the path bar re-marked it as current while the deeper breadcrumb
+    buttons stayed visible. The window slot now has a dedicated "set
+    location without reloading" entry point that also moves the viewed file
+    and its "changed" handler, so the stale folder can no longer revert the
+    location.
+  * Column View navigation now also updates the window title and icon and
+    records back/forward history: the Back/Forward buttons follow folder
+    clicks and the window title no longer stays on the folder the window
+    was opened in.
+
 nemo (1.0.36) unstable; urgency=medium
 
   [ Column View ]
