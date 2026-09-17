@@ -1570,6 +1570,66 @@ update_for_new_location (NemoWindowSlot *slot)
     nemo_window_sync_menu_bar (window);
 }
 
+/* Used by views that navigate internally (column view) or that keep the same
+ * view while displaying a different location: bring the slot state in sync
+ * with the location (location bookmarks, back/forward history, viewed file,
+ * title, icon, location widgets) without triggering a view reload. */
+void
+nemo_window_slot_set_location_from_view (NemoWindowSlot *slot, GFile *location)
+{
+	NemoFile *file;
+
+	g_return_if_fail (NEMO_IS_WINDOW_SLOT (slot));
+	g_return_if_fail (location != NULL);
+
+	if (slot->location != NULL && g_file_equal (slot->location, location)) {
+		/* Same location (e.g. the same folder clicked twice in the
+		 * column view): only make sure the location widgets are in
+		 * sync; don't touch history or the viewed file. */
+		if (slot == slot->pane->active_slot) {
+			nemo_window_pane_sync_location_widgets (slot->pane);
+		}
+		return;
+	}
+
+	set_displayed_location (slot, location);
+	update_history (slot, NEMO_LOCATION_CHANGE_STANDARD, location);
+
+	nemo_window_slot_emit_location_change (slot, slot->location, location);
+
+	/* Set the new location. */
+	g_clear_object (&slot->location);
+	slot->location = g_object_ref (location);
+
+	/* Keep the slot's "viewed file" in sync. The previously viewed file
+	 * keeps emitting "changed" (directory loads, item counts, inotify
+	 * events, ...), and viewed_file_changed_callback() would then rewrite
+	 * slot->location back to it, making the path bar highlight jump to
+	 * the old folder while the deeper breadcrumbs stay visible. */
+	cancel_viewed_file_changed_callback (slot);
+	file = nemo_file_get (slot->location);
+	nemo_window_slot_set_viewed_file (slot, file);
+	/* The column view tears down its own columns when a displayed folder
+	 * disappears (navigating to the parent for the root column); don't
+	 * let the window hijack the navigation for internally shown folders. */
+	slot->viewed_file_seen = FALSE;
+	slot->viewed_file_in_trash = nemo_file_is_in_trash (file);
+	nemo_file_monitor_add (file, &slot->viewed_file, 0);
+	g_signal_connect_object (file, "changed",
+				 G_CALLBACK (viewed_file_changed_callback), slot, 0);
+	nemo_file_unref (file);
+
+	nemo_window_slot_update_title (slot);
+	nemo_window_slot_update_icon (slot);
+
+	if (slot == slot->pane->active_slot) {
+		nemo_window_pane_sync_up_actions (slot->pane);
+		nemo_window_pane_sync_location_widgets (slot->pane);
+	}
+}
+
+
+
 /* A location load previously announced by load_underway
  * has been finished */
 void

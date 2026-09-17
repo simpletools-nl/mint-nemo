@@ -32,6 +32,12 @@
 
 void nemo_window_manage_views_close_slot (NemoWindowSlot *slot);
 
+/* Bring the slot state (location bookmarks, back/forward history, viewed
+ * file and its "changed" handler, title, icon, location widgets) in sync
+ * with a location a view displays without reloading the view. Used by
+ * views that navigate internally, e.g. the column view. */
+void nemo_window_slot_set_location_from_view (NemoWindowSlot *slot, GFile *location);
+
 
 /* NemoWindowInfo implementation: */
 void nemo_window_report_location_change   (NemoWindow     *window);

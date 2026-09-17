@@ -10,6 +10,7 @@
 #include "nemo-window.h"
 #include "nemo-window-slot.h"
 #include "nemo-window-pane.h"
+#include "nemo-window-manage-views.h"
 #include "nemo-actions.h"
 
 #include <string.h>
@@ -1513,28 +1514,17 @@ static void
 column_view_update_address_bar (NemoColumnView *view, GFile *location)
 {
 	NemoWindowSlot *slot;
-	GFile *old_location;
-	gchar *from_uri = NULL;
-	gchar *to_uri;
 
 	slot = nemo_view_get_nemo_window_slot (NEMO_VIEW (view));
 	if (slot == NULL || location == NULL) return;
 
-	old_location = slot->location;
-	slot->location = g_object_ref (location);
-
-	if (old_location != NULL) {
-		from_uri = g_file_get_uri (old_location);
-		g_object_unref (old_location);
-	}
-	to_uri = g_file_get_uri (location);
-
-	g_signal_emit_by_name (slot, "location-changed", from_uri, to_uri);
-
-	g_free (from_uri);
-	g_free (to_uri);
-
-	nemo_window_pane_sync_location_widgets (slot->pane);
+	/* Let the window slot do the full bookkeeping (location, history,
+	 * viewed file + its "changed" handler, title, icon, location widgets).
+	 * Writing just slot->location here left the slot's viewed file stale:
+	 * whenever that old file emitted "changed", the slot rewrote its
+	 * location back to it and the path bar highlight jumped to the old
+	 * folder while the deeper breadcrumbs stayed visible. */
+	nemo_window_slot_set_location_from_view (slot, location);
 }
 
 static void
