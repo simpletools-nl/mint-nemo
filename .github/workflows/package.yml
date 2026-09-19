@@ -284,13 +284,20 @@ jobs:
             - Right-click context menus, drag & drop between columns, and "Open in Terminal"
               from deep directories are supported in Column View.
 
-            ### Installation
+            ### Installation (terminal, not the Software Center)
             ```bash
             sudo apt install ./nemo-with-column-view_${{ steps.version.outputs.version }}_amd64.deb
             ```
             (One transaction: `apt` removes the stock `nemo`, `nemo-data`, `libnemo-extension1`,
             `gir1.2-nemo-3.0` and the `*-dbg` debug packages and installs this build. If you prefer
             `sudo dpkg -i …`, follow it with `sudo apt-get install -f`.)
+
+            > **Do not install this .deb from the Software Center / mintinstall.** The graphical
+            > installer cannot resolve conflicts, so it stops with
+            > `Error: Conflicts with the installed package 'nemo-dbg' / 'cinnamon-dbg'`.
+            > That conflict is intentional - the debug packages pin `nemo` to the exact distribution
+            > version, which a package that provides `nemo` can never satisfy, so they must be removed
+            > (which is exactly what the terminal command above does in the same transaction).
             This replaces the distribution `nemo` package (it Provides/Replaces/Breaks it), which
             is required because the two ship the same configuration and extension files. After
             installing, `apt upgrade` will no longer try to "upgrade" it back to the stock nemo.

@@ -24,6 +24,13 @@ sudo apt install ./nemo-with-column-view_7.0.0_amd64.deb
 one. If you use plain `sudo dpkg -i …` instead, follow it with `sudo apt-get install -f` — the
 transition state keeps the distro packages around until then.)
 
+**Do not install the .deb from the Software Center / mintinstall.** The graphical installer
+cannot resolve conflicts, so it stops with
+`Error: Conflicts with the installed package 'nemo-dbg' / 'cinnamon-dbg'`. That conflict is
+intentional: the debug packages pin `nemo` to an exact distribution version, which a package
+that *provides* `nemo` can never satisfy, so they must be removed — which the terminal command
+above does in the same transaction.
+
 `nemo-fileroller` (Compress… / Extract Here) is installed as a dependency, not bundled.
 
 The launcher is shown as **Nemo with Column View**. The on-disk identity is deliberately
