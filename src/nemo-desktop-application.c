@@ -388,6 +388,7 @@ nemo_desktop_application_open (GApplication *app,
  * URI" semantics as nemo. */
 static const gchar * const select_capable_handlers[] = {
     "nemo",
+    "nemo-with-column-view",
     "nautilus",
     "caja",
     "dolphin",

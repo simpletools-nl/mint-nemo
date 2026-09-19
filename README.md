@@ -6,6 +6,32 @@ We use Linux Mint for everything and found Nemo lacking a column view. We added 
 
 This app is based on nemo 6.6.3 (You can view it on master branch)
 
+Packaging / installation
+------------------------
+This build ships as the Debian package **`nemo-with-column-view`** (version line **7.x**), not as
+`nemo`. It *takes over* the distribution's `nemo` package: it declares versioned
+`Provides: nemo (= 7.0.0), nemo-data (= 7.0.0), libnemo-extension1 (= 7.0.0), gir1.2-nemo-3.0 (= 7.0.0)`
+plus `Replaces`/`Breaks` for their older versions, and `Conflicts` with `nemo-dbg`/`cinnamon-dbg`.
+That is required because both packages install the same files
+(`/usr/share/nemo`, `org.nemo.gschema.xml`, `libnemo-extension.so.1`, …); as a side effect
+`apt upgrade` no longer tries to "upgrade" this build back to the stock nemo.
+
+```bash
+sudo apt install ./nemo-with-column-view_7.0.0_amd64.deb
+```
+(`apt` resolves the conflict in one transaction: it removes the stock `nemo`,
+`nemo-data`, `libnemo-extension1`, `gir1.2-nemo-3.0` and the `*-dbg` packages and installs this
+one. If you use plain `sudo dpkg -i …` instead, follow it with `sudo apt-get install -f` — the
+transition state keeps the distro packages around until then.)
+
+`nemo-fileroller` (Compress… / Extract Here) is installed as a dependency, not bundled.
+
+The launcher is shown as **Nemo with Column View**. The on-disk identity is deliberately
+unchanged so the rest of the desktop keeps working: `/usr/share/nemo`, the `org.nemo.*` GSettings
+schemas, `libnemo-extension.so.1`, the `nemo.desktop` launcher id, the `org.Nemo` D-Bus name and
+the `.nemo_action` extension. The executable is `/usr/bin/nemo-with-column-view`, with a
+compatibility `/usr/bin/nemo` symlink.
+
 Nemo
 ====
 Nemo is a free and open-source software and official file manager of the Cinnamon desktop environment. 

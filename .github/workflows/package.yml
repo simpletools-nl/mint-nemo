@@ -86,31 +86,21 @@ jobs:
       - name: Install to staging directory
         run: DESTDIR=/tmp/staging meson install -C build
 
-      - name: Build and bundle nemo-fileroller (Compress/Extract context menu)
+      # nemo-fileroller is no longer bundled/compiled here. We ship the same
+      # libnemo-extension.so.1 ABI (version-info 5) as the distributions' nemo,
+      # so their nemo-fileroller package loads fine into this build and is
+      # pulled in with a plain 'Depends: nemo-fileroller' below. Bundling our
+      # own copy meant both packages owned
+      # /usr/lib/x86_64-linux-gnu/nemo/extensions-3.0/libnemo-fileroller.so,
+      # which made every install of this package delete the distro one - and
+      # apt immediately reinstalled it together with the stock nemo.
+      - name: Check staged nemo-fileroller extension is NOT present
         run: |
-          apt-get install -y --no-install-recommends git
-          # Our nemo fork uses the legacy libnemo-extension ABI
-          # (get_file_items/get_background_items), so we bundle the
-          # compatible nemo-fileroller 2.8.x and compile it against our
-          # staged libnemo-extension headers/libs (the host may ship a
-          # newer, incompatible nemo).
-          git clone --depth 1 --branch 2.8.x https://github.com/linuxmint/nemo-extensions /tmp/nemo-extensions
-          cd /tmp/nemo-extensions/nemo-fileroller/src
-          cat > config.h <<'EOF'
-          #ifndef CONFIG_H
-          #define CONFIG_H
-          #define GETTEXT_PACKAGE "nemo-fileroller"
-          #define GNOMELOCALEDIR "/usr/share/locale"
-          #endif
-          EOF
-          gcc -shared -fPIC -o libnemo-fileroller.so \
-            -I. -I/tmp/staging/usr/include/nemo \
-            $(pkg-config --cflags glib-2.0 gio-2.0 gtk+-3.0 pango) \
-            nemo-fileroller.c fileroller-module.c \
-            -L/tmp/staging/usr/lib/x86_64-linux-gnu -lnemo-extension
-          mkdir -p /tmp/staging/usr/lib/x86_64-linux-gnu/nemo/extensions-3.0
-          cp libnemo-fileroller.so /tmp/staging/usr/lib/x86_64-linux-gnu/nemo/extensions-3.0/
-          find /tmp/staging -name 'libnemo-fileroller.so'
+          if [ -e /tmp/staging/usr/lib/x86_64-linux-gnu/nemo/extensions-3.0/libnemo-fileroller.so ]; then
+            echo "ERROR: staged package still ships libnemo-fileroller.so" >&2
+            exit 1
+          fi
+          echo "OK: libnemo-fileroller.so is provided by the distro nemo-fileroller package"
 
       - name: Compute shared library dependencies
         id: shlibs
@@ -118,15 +108,15 @@ jobs:
         run: |
           mkdir -p /tmp/pkgbuild/debian
           cat > /tmp/pkgbuild/debian/control <<'EOF'
-          Source: nemo
+          Source: nemo-with-column-view
           Section: misc
           Priority: optional
           Maintainer: Ulas <ulasalkan@gmail.com>
 
-          Package: nemo
+          Package: nemo-with-column-view
           Architecture: any
           Depends: ${shlibs:Depends}
-          Description: nemo
+          Description: nemo-with-column-view
           EOF
           cat > /tmp/pkgbuild/debian/shlibs.local <<'EOF'
           libnemo-extension 1 libnemo-extension1 (>= 5.0.3)
@@ -134,17 +124,16 @@ jobs:
           cd /tmp/pkgbuild
           set -o pipefail
            LIBNEMO=$(ls /tmp/staging/usr/lib/x86_64-linux-gnu/libnemo-extension.so.*.*.* | head -1)
-           FR=$(ls /tmp/staging/usr/lib/x86_64-linux-gnu/nemo/extensions-3.0/libnemo-fileroller.so 2>/dev/null | head -1)
            DEPS=$(dpkg-shlibdeps -O \
              -l/tmp/staging/usr/lib/x86_64-linux-gnu \
              -l/tmp/staging/usr/lib \
-             /tmp/staging/usr/bin/nemo \
+             /tmp/staging/usr/bin/nemo-with-column-view \
              /tmp/staging/usr/bin/nemo-desktop \
              /tmp/staging/usr/bin/nemo-connect-server \
              /tmp/staging/usr/bin/nemo-open-with \
              /tmp/staging/usr/bin/nemo-autorun-software \
              /tmp/staging/usr/libexec/nemo-extensions-list \
-             "$LIBNEMO" "${FR:-}" 2>/dev/null \
+             "$LIBNEMO" 2>/dev/null \
              | sed 's/^shlibs:Depends=//')
           DEPS=$(echo "$DEPS" | sed 's/libnemo-extension1 ([^)]*), *//g; s/libnemo-extension1 ([^)]*)//')
           echo "deps=$DEPS" >> "$GITHUB_OUTPUT"
@@ -153,19 +142,20 @@ jobs:
         run: |
           mkdir -p /tmp/staging/DEBIAN
           cat > /tmp/staging/DEBIAN/control <<EOF
-          Package: nemo
+          Package: nemo-with-column-view
           Version: ${{ steps.version.outputs.version }}
           Section: misc
           Priority: optional
           Architecture: amd64
           Maintainer: Ulas <ulasalkan@gmail.com>
           Installed-Size: $(du -sk /tmp/staging/usr | cut -f1)
-          Depends: ${{ steps.shlibs.outputs.deps }}, cinnamon-desktop-data (>= 4.8.0), cinnamon-l10n, desktop-file-utils (>= 0.7), gsettings-desktop-schemas, gvfs (>= 1.3.2), libglib2.0-data, shared-mime-info (>= 0.50), poppler-utils, exif, id3, catdoc, untex, html2text, python3, python3-xlrd, xapp-symbolic-icons (>= 1.0.7), file-roller
-          Replaces: nemo-data, libnemo-extension1, gir1.2-nemo-3.0, libnemo-extension-dev, nemo-fileroller
-          Provides: nemo-data, libnemo-extension1, gir1.2-nemo-3.0, libnemo-extension-dev, nemo-fileroller
-          Conflicts: nemo-desktop, nemo-fileroller
+          Depends: ${{ steps.shlibs.outputs.deps }}, nemo-fileroller, cinnamon-desktop-data (>= 4.8.0), cinnamon-l10n, desktop-file-utils (>= 0.7), gsettings-desktop-schemas, gvfs (>= 1.3.2), libglib2.0-data, shared-mime-info (>= 0.50), poppler-utils, exif, id3, catdoc, untex, html2text, python3, python3-xlrd, xapp-symbolic-icons (>= 1.0.7), file-roller
+          Provides: nemo (= ${{ steps.version.outputs.version }}), nemo-data (= ${{ steps.version.outputs.version }}), libnemo-extension1 (= ${{ steps.version.outputs.version }}), gir1.2-nemo-3.0 (= ${{ steps.version.outputs.version }}), libnemo-extension-dev (= ${{ steps.version.outputs.version }})
+          Replaces: nemo, nemo-data, libnemo-extension1, gir1.2-nemo-3.0, libnemo-extension-dev
+          Breaks: nemo (<< ${{ steps.version.outputs.version }}), nemo-data (<< ${{ steps.version.outputs.version }}), libnemo-extension1 (<< ${{ steps.version.outputs.version }}), gir1.2-nemo-3.0 (<< ${{ steps.version.outputs.version }}), libnemo-extension-dev (<< ${{ steps.version.outputs.version }})
+          Conflicts: nemo-dbg, cinnamon-dbg
           Homepage: https://github.com/simpletools-nl/mint-nemo
-          Description: file manager and graphical shell for Cinnamon
+          Description: file manager and graphical shell for Cinnamon - Column View build
            Nemo is the official file manager for the Cinnamon desktop. It allows
            to browse directories, preview files and launch applications associated
            with them. It is also responsible for handling the icons on the Cinnamon
@@ -173,6 +163,19 @@ jobs:
            .
            This package is built from the custom branch that adds the macOS
            Finder-style Column View (Miller columns) to Nemo.
+           .
+           It takes over the distribution's nemo package: it Provides (with a
+           version) nemo, nemo-data, libnemo-extension1, gir1.2-nemo-3.0 and
+           libnemo-extension-dev, and Replaces/Breaks their older versions. It
+           deliberately keeps the shared on-disk identity (/usr/share/nemo,
+           org.nemo.* GSettings schemas, libnemo-extension.so.1, the
+           nemo.desktop launcher id and the org.Nemo D-Bus name) so that the
+           desktop environment, nemo extensions and Cinnamon's Spices find it.
+           .
+           Debug packages (nemo-dbg, cinnamon-dbg) cannot be installed alongside
+           this one: they pin nemo to an exact distribution version which a
+           provider can never satisfy, so they are conflicted with instead of
+           being left permanently uninstallable.
           EOF
           cat > /tmp/staging/DEBIAN/postinst <<'EOF'
           #!/bin/sh
@@ -202,14 +205,14 @@ jobs:
 
       - name: Build deb package
         run: |
-          dpkg-deb --build --root-owner-group /tmp/staging /tmp/nemo_${{ steps.version.outputs.version }}_amd64.deb
-          ls -la /tmp/nemo_${{ steps.version.outputs.version }}_amd64.deb
+          dpkg-deb --build --root-owner-group /tmp/staging /tmp/nemo-with-column-view_${{ steps.version.outputs.version }}_amd64.deb
+          ls -la /tmp/nemo-with-column-view_${{ steps.version.outputs.version }}_amd64.deb
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nemo-deb
-          path: /tmp/nemo_${{ steps.version.outputs.version }}_amd64.deb
+          name: nemo-with-column-view-deb
+          path: /tmp/nemo-with-column-view_${{ steps.version.outputs.version }}_amd64.deb
           if-no-files-found: error
 
       - name: Remove existing release for this tag (if any)
@@ -222,15 +225,37 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: ncipollo/release-action@v1
         with:
-          artifacts: /tmp/nemo_${{ steps.version.outputs.version }}_amd64.deb
+          artifacts: /tmp/nemo-with-column-view_${{ steps.version.outputs.version }}_amd64.deb
           token: ${{ secrets.GITHUB_TOKEN }}
           allowUpdates: true
           body: |
-            ## Nemo ${{ steps.version.outputs.version }} — Column View
+            ## Nemo with Column View ${{ steps.version.outputs.version }} — Column View
 
-            Custom Nemo build that adds a macOS Finder-style **Column View (Miller columns)**
-            and bundles the **nemo-fileroller** extension so the **Compress… / Extract Here**
-            context menu entries work out of the box.
+            Custom Nemo build that adds a macOS Finder-style **Column View (Miller columns)**.
+            It is based on Nemo 6.6.3 and now ships as the package **`nemo-with-column-view`**.
+
+            ### Packaging changes in this release
+            - **The package is now named `nemo-with-column-view` and versioned `7.x`.** Until now it
+              shipped as `nemo` version `1.x`, which is *lower* than the distribution's
+              `nemo 6.6.3+zena`: apt treated every Mint update as an upgrade and fought the fork on
+              every refresh. The 7.x line sorts above any nemo version the distributions can ship.
+            - **Dependency metadata fixed.** The package now declares versioned
+              `Provides: nemo (= 7.0.0), nemo-data (= 7.0.0), libnemo-extension1 (= 7.0.0),
+              gir1.2-nemo-3.0 (= 7.0.0)` plus `Replaces`/`Breaks` for their older versions, so
+              `cinnamon`'s `nemo` dependency and the `libnemo-extension1 (>= 5.0.3)` /
+              `gir1.2-nemo-3.0 (>= 3.8)` requirements of `nemo-share`, `python-nemo`, `nemo-emblems`
+              and friends are properly satisfied. The old unversioned `Provides` could not.
+            - **`nemo-fileroller` is no longer bundled.** This build ships the same
+              `libnemo-extension.so.1` ABI (5) as the distribution, so the distro `nemo-fileroller`
+              package works as-is and is pulled in with a plain `Depends: nemo-fileroller`.
+              Bundling a second copy made both packages own the same extension file.
+            - **`nemo-dbg` / `cinnamon-dbg` are removed.** They pin `nemo` to an exact distribution
+              version that a package providing `nemo` can never satisfy, which left apt in a
+              permanently broken state. They are now explicitly conflicted with.
+            - **Shared identity is kept on purpose:** `/usr/share/nemo`, the `org.nemo.*` GSettings
+              schemas, `libnemo-extension.so.1`, the `nemo.desktop` launcher id and the `org.Nemo`
+              D-Bus name are unchanged so that Cinnamon's Desktop and Spices settings, nemo
+              extensions and Actions keep working.
 
             ### Fixes in this release
             - **Path bar highlighted the wrong folder.** After clicking a folder in Column View,
@@ -254,17 +279,20 @@ jobs:
             - **Breadcrumb selection**: ancestor folders you drilled through stay highlighted,
               Finder-style, and opening a folder loads it as a single column (not the full ancestor
               chain up to `/`).
-            - **Compress / Extract**: the `nemo-fileroller` extension is compiled against this
-              build's `libnemo-extension` ABI and embedded in the package, so right-clicking a
-              file or folder shows "Compress…" and archives show "Extract Here". `file-roller`
-              is pulled in automatically as a dependency.
+            - **Compress / Extract**: `nemo-fileroller` is installed as a dependency, so
+              right-clicking a file or folder shows "Compress…" and archives show "Extract Here".
             - Right-click context menus, drag & drop between columns, and "Open in Terminal"
               from deep directories are supported in Column View.
 
             ### Installation
             ```bash
-            sudo dpkg -i nemo_${{ steps.version.outputs.version }}_amd64.deb
-            sudo apt-get install -f
+            sudo apt install ./nemo-with-column-view_${{ steps.version.outputs.version }}_amd64.deb
             ```
-            Then restart Nemo (`nemo -q`) or log out/in for the new view and context-menu
-            entries to take effect.
+            (One transaction: `apt` removes the stock `nemo`, `nemo-data`, `libnemo-extension1`,
+            `gir1.2-nemo-3.0` and the `*-dbg` debug packages and installs this build. If you prefer
+            `sudo dpkg -i …`, follow it with `sudo apt-get install -f`.)
+            This replaces the distribution `nemo` package (it Provides/Replaces/Breaks it), which
+            is required because the two ship the same configuration and extension files. After
+            installing, `apt upgrade` will no longer try to "upgrade" it back to the stock nemo.
+            Then restart the file manager (`nemo -q`) or log out/in for the new view and
+            context-menu entries to take effect.

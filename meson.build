@@ -1,7 +1,17 @@
 # Meson build file
 
 # https://github.com/simpletools-nl/mint-nemo
-project('nemo', 'c', version : '1.0.37', meson_version : '>=0.64.0')
+#
+# The project is deliberately NOT called 'nemo'. It is a superset of the
+# distributions' nemo (same on-disk identity: /usr/share/nemo, org.nemo.*
+# GSettings schemas, libnemo-extension.so.1, the nemo.desktop launcher id), so
+# shipping it under the name 'nemo' with a lower version number made apt treat
+# the stock package as an upgrade and fight back on every update.
+#
+# The version must stay ABOVE any version the nemo/nemo-data/libnemo-extension1/
+# gir1.2-nemo-3.0 packages can ever have in the distributions we target
+# (6.6.x today, 6.8.x later), hence the 7.x line.
+project('nemo-with-column-view', 'c', version : '7.0.0', meson_version : '>=0.64.0')
 
 # 1. If the library code has changed at all since last release, then increment revision.
 # 2. If any interfaces have been added, then increment current and set revision to 0.

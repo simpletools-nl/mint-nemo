@@ -1,7 +1,7 @@
-Source: nemo
+Source: nemo-with-column-view
 Section: misc
 Priority: optional
-Maintainer: Linux Mint <root@linuxmint.com>
+Maintainer: Ulas <ulasalkan@gmail.com>
 Build-Depends:
  cinnamon-l10n,
  debhelper-compat (= 12),
@@ -80,7 +80,7 @@ Description: libraries for nemo components - runtime version
  .
  This package contains a few runtime libraries needed by nemo' extensions.
 
-Package: nemo
+Package: nemo-with-column-view
 Architecture: any
 Pre-Depends: ${misc:Pre-Depends}
 Depends:
@@ -103,6 +103,10 @@ Depends:
  xapp-symbolic-icons (>= 1.0.7),
  ${misc:Depends},
  ${shlibs:Depends},
+Provides: nemo (= ${source:Version})
+Replaces: nemo
+Breaks: nemo (<< ${source:Version})
+Conflicts: nemo-dbg, cinnamon-dbg
 Recommends:
  gvfs-backends,
  gvfs-fuse,
@@ -110,14 +114,18 @@ Recommends:
  nemo-fileroller,
  gnome-disk-utility
 Suggests: eog, evince | pdf-viewer, totem | mp3-decoder, xdg-user-dirs
-Description: file manager and graphical shell for Cinnamon
+Description: file manager and graphical shell for Cinnamon - Column View build
  Nemo is the official file manager for the Cinnamon desktop. It allows
  to browse directories, preview files and launch applications associated
  with them. It is also responsible for handling the icons on the Cinnamon
  desktop. It works on local and remote filesystems.
  .
- Several icon themes and components for viewing different kinds of files
- are available in separate packages.
+ This package is built from the custom branch that adds the macOS
+ Finder-style Column View (Miller columns) to Nemo. It takes over the
+ distribution's nemo package and keeps the shared on-disk identity
+ (/usr/share/nemo, org.nemo.* GSettings schemas, libnemo-extension.so.1,
+ the nemo.desktop launcher id and the org.Nemo D-Bus name) so the desktop
+ environment and nemo extensions keep working.
 
 Package: nemo-data
 Architecture: all

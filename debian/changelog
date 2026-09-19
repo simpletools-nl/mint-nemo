@@ -1,3 +1,53 @@
+nemo-with-column-view (7.0.0) unstable; urgency=medium
+
+  [ Column View ]
+  * The package is now named nemo-with-column-view and versioned 7.x. It used
+    to ship as "nemo" 1.x, which sorts below the distribution's nemo
+    6.6.3+zena, so apt treated every Mint update as an upgrade and replaced
+    this build on every refresh. The 7.x line stays above any nemo version the
+    distributions ship (6.6.x today, 6.8.x later).
+  * Dependency metadata is now correct: the package declares versioned
+    Provides (nemo, nemo-data, libnemo-extension1, gir1.2-nemo-3.0,
+    libnemo-extension-dev), Replaces and Breaks for their older versions, and
+    Conflicts with nemo-dbg and cinnamon-dbg. Unversioned Provides could never
+    satisfy the libnemo-extension1 (>= 5.0.3) / gir1.2-nemo-3.0 (>= 3.8)
+    requirements of nemo-share, python-nemo, nemo-emblems and nemo-fileroller,
+    nor the "nemo (= 6.6.3+zena)" pin of nemo-dbg, which is what produced the
+    broken-package reports.
+  * nemo-fileroller is no longer bundled. This build ships the same
+    libnemo-extension.so.1 ABI (version 5) as the distribution, so the distro
+    nemo-fileroller package loads fine and is a plain Depends. Bundling a
+    second copy made both packages own
+    /usr/lib/x86_64-linux-gnu/nemo/extensions-3.0/libnemo-fileroller.so, which
+    made every install delete the distro one (and apt reinstall it together
+    with the stock nemo, the second ping-pong loop).
+  * The executable is now /usr/bin/nemo-with-column-view with a compatibility
+    /usr/bin/nemo symlink, so the nemo.desktop launcher, the polkit policy and
+    user scripts keep working.
+  * The launcher is displayed as "Nemo with Column View". The on-disk identity
+    is deliberately unchanged: /usr/share/nemo, the org.nemo.* GSettings
+    schemas, libnemo-extension.so.1, the nemo.desktop launcher id, the
+    org.Nemo D-Bus name and the .nemo_action extension, because
+    cinnamon-settings (cs_desktop.py, Spices.py, ExtensionCore.py), the
+    session defaults and nemo extensions all reference them.
+  * Fix the path bar highlighting the wrong folder after clicking a folder in
+    Column View. The view only wrote slot->location, leaving the slot's
+    "viewed file" pointing at the previously opened folder (e.g. the folder
+    the window was opened in). When that stale file emitted a "changed"
+    signal (directory loads, item counts, inotify events triggered by the
+    column monitors), the slot rewrote its location back to the old folder
+    and the path bar re-marked it as current while the deeper breadcrumb
+    buttons stayed visible. The window slot now has a dedicated "set
+    location without reloading" entry point that also moves the viewed file
+    and its "changed" handler, so the stale folder can no longer revert the
+    location.
+  * Column View navigation now also updates the window title and icon and
+    records back/forward history: the Back/Forward buttons follow folder
+    clicks and the window title no longer stays on the folder the window
+    was opened in.
+
+ -- Ulas <ulasalkan@gmail.com>  Sat, 19 Sep 2026 21:56:10 +0400
+
 nemo (1.0.37) unstable; urgency=medium
 
   [ Column View ]

@@ -120,12 +120,21 @@ if gtk_layer_shell_enabled
   nemo_deps += wayland_client
 endif
 
-nemo = executable('nemo',
+nemo_with_column_view = executable('nemo-with-column-view',
   nemoCommon_sources + nemoWindow_sources,
   include_directories: [ rootInclude ],
   c_args: nemo_definitions,
   dependencies: nemo_deps,
   install: true
+)
+
+# Compatibility symlink: the launcher id nemo.desktop, the polkit policy,
+# the D-Bus service files and user scripts still refer to the historic
+# 'nemo' binary name, and this build is a drop-in superset of it.
+install_symlink(
+  'nemo',
+  pointing_to: 'nemo-with-column-view',
+  install_dir: join_paths(get_option('prefix'), get_option('bindir'))
 )
 
 nemoDesktop = executable('nemo-desktop',
